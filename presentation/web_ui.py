@@ -1174,8 +1174,10 @@ _OPS_PAGE = """
     </div>
     <div class="ops-item" style="grid-column:1/-1">
       <h3>强制推送测试</h3>
-      <p>绕过分级/去重/每日限额，把当前满足条件的标的直推企业微信验证通道（标记[TEST]，不写推送历史、不占限额）。九转测试与正式推送同格式：🆕新增/⏳原有分组、日┃周┃月分割线。</p>
-      <button onclick="doPushTest('nine', this)">推送·九转满足标的</button>
+      <p>绕过分级/去重/每日限额，把当前满足条件的标的直推企业微信验证通道（标记[TEST]，不写推送历史、不占限额）。</p>
+      <p style="margin:4px 0">🌀 <b>单一策略</b>：与正式推送完全同口径——日线|九转计数|≥8 即命中，新增/原有按上次扫描计数比对，顶部/底部预警 + 日┃周┃月分割线。</p>
+      <button onclick="doPushTest('single', this)">推送·单一策略(九转)</button>
+      <button onclick="doPushTest('nine', this)">推送·九转多周期观察</button>
       <button onclick="doPushTest('premium', this)">推送·LOF溢价满足标的</button>
       <pre id="ptOut" style="display:none;margin-top:10px"></pre>
     </div>
@@ -2465,12 +2467,15 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
     @app.post("/api/ops/push_test")
     def ops_push_test():
         """运维中心·强制推送测试：绕过分级/去重/限额闸门，直推微信验证通道（标记TEST，不写推送历史）。
-        kind=nine → 单一策略·神奇九转：自选池任一周期|九转计数|≥8，按推送历史区分新增/原有，日周月以分割线分隔；
+        kind=single → 单一策略·神奇九转（与正式推送完全同口径）：|日线九转计数|≥push_from 即命中，
+                      新增/原有按 stock_state 上次扫描计数比对（计数变化或首次=🆕新增，一致=⏳原有），
+                      顶部/底部预警 + 日┃周┃月分割线；
+        kind=nine → 九转多周期观察：自选池任一周期|九转计数|≥8，按推送历史区分新增/原有，日周月以分割线分隔；
         kind=premium → 真LOF(16/50)溢价触发提醒线。"""
         d = request.get_json(silent=True) or {}
         kind = d.get("kind")
-        if kind not in ("nine", "premium"):
-            return jsonify(error="kind 必须为 nine/premium"), 400
+        if kind not in ("single", "nine", "premium"):
+            return jsonify(error="kind 必须为 single/nine/premium"), 400
         pool = {str(i["code"]): str(i.get("name", "")) for i in cfg.get("watchlist", [])}
         snaps = {p: {str(r.get("code")): r for r in cache.latest_snapshots(p)}
                  for p in ("day", "week", "month")}
@@ -2482,7 +2487,52 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
             color = "warning" if c > 0 else "info"
             return f'<font color="{color}">{cn}线{"高" if c > 0 else "低"}{abs(c)}</font>'
 
-        if kind == "nine":
+        if kind == "single":
+            # 单一策略·神奇九转：与正式推送(orchestrator single_mode)完全对应的预演
+            # 门槛=|日线计数|≥push_from；fresh=stock_state上次计数比对；周月仅展示
+            push_from = int(cfg.get("nine_turns", {}).get("push_from", 8))
+            fresh_lines, keep_lines = [], []
+
+            def seg_md(cn: str, c) -> str:
+                # 日周月分段：≥8着色（高橙/低绿），其余灰显计数，None→无
+                if c is None:
+                    return f'<font color="comment">{cn}无</font>'
+                if abs(c) >= 8:
+                    return tag_md(cn, c)
+                return f'<font color="comment">{cn}{"高" if c > 0 else "低" if c < 0 else "0"}{abs(c)}</font>'
+
+            def seg_plain(cn: str, c) -> str:
+                if c is None:
+                    return f"{cn}无"
+                return f"{cn}{'高' if c > 0 else '低' if c < 0 else ''}{abs(c) if c else 0}"
+
+            for code, name in pool.items():
+                day_c = (snaps["day"].get(code) or {}).get("turn_count")
+                if day_c is None or abs(day_c) < push_from:
+                    continue
+                week_c = (snaps["week"].get(code) or {}).get("turn_count")
+                month_c = (snaps["month"].get(code) or {}).get("turn_count")
+                tags = " ┃ ".join([seg_md("日", day_c), seg_md("周", week_c), seg_md("月", month_c)])
+                plain = "┃".join([seg_plain("日", day_c), seg_plain("周", week_c),
+                                  seg_plain("月", month_c)])
+                items.append({"code": code, "name": name, "tags": plain})
+                # 正式推送口径：上次扫描计数(stock_state)变化或首次出现=新增，一致=原有
+                prev = cache.get_state(code)
+                fresh = prev is None or prev != day_c
+                warn_cn = "顶部预警" if day_c > 0 else "底部预警"
+                row = f"> 🌀 **{name}** {code} · {warn_cn}：{tags}"
+                (fresh_lines if fresh else keep_lines).append(row)
+            title = f"【测试推送】单一策略·九转 {len(items)}只"
+            parts = []
+            if fresh_lines:
+                parts.append(f"\n🆕 **新增（{len(fresh_lines)}只）**\n" + "\n".join(fresh_lines))
+            if keep_lines:
+                div = "─" * 16
+                parts.append((f"\n{div}\n" if parts else "")
+                             + f"⏳ **原有维持（{len(keep_lines)}只）**\n" + "\n".join(keep_lines))
+            body = "\n".join(parts) if parts \
+                else f"\n<font color=\"comment\">当前自选池无日线九转计数≥{push_from}的标的</font>\n本条仅验证推送通道。"
+        elif kind == "nine":
             # 推送历史视角：同方向推送过=⏳原有，未推送过=🆕新增（与正式推送的新增/原有口径一致）
             hist_dirs = {}
             for r_code, r_dir in cache.conn.execute(
