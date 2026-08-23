@@ -1,0 +1,136 @@
+# ============ A股监控系统配置 ============
+
+# 数据源顺序：依次尝试，全部失败时若允许 demo 则用合成数据
+# tencent: 腾讯直连（股票/LOF/指数全覆盖，无需库依赖）
+# akshare: 东财源；baostock: 免费K线；synthetic: 离线兜底
+data_sources: ["tencent", "akshare", "baostock", "synthetic"]
+allow_synthetic_fallback: true   # 网络不可用时降级为确定性合成数据（保证可运行）
+
+# 自选池（股票 + ETF + LOF），code 类型自动识别（16/50/51/52/58=场内基金）
+watchlist:
+  # ---- 股票 ----
+  - {code: "000333", name: "美的集团"}
+  - {code: "600900", name: "长江电力"}
+  - {code: "002594", name: "比亚迪"}
+  - {code: "002415", name: "海康威视"}
+  - {code: "600276", name: "恒瑞医药"}
+  # ---- ETF ----
+  - {code: "510300", name: "沪深300ETF"}
+  - {code: "512880", name: "证券ETF"}
+  - {code: "588000", name: "科创50ETF"}
+  # ---- LOF ----
+  - {code: "161005", name: "白银LOF"}
+  - {code: "160644", name: "标普消费LOF"}
+  - {code: "161127", name: "标普生物科技LOF"}
+  - {code: "300059", name: "东方财富"}
+  - {code: "159112", name: "159112"}
+  - {code: "161128", name: "标普信息科技LOF"}
+  - {code: "165520", name: "有色LOF"}
+  - {code: "588290", name: "科创芯片ETF华安"}
+  - {code: "688498", name: "源杰科技"}
+  - {code: "300308", name: "中际旭创"}
+  - {code: "688766", name: "普冉股份"}
+  - {code: "603986", name: "兆易创新"}
+  - {code: "513060", name: "恒生医疗ETF博时"}
+  - {code: "000963", name: "华东医药"}
+  - {code: "159995", name: "芯片ETF华夏"}
+  - {code: "513010", name: "恒生科技ETF易方达"}
+  - {code: "513050", name: "中概互联网ETF易方达"}
+  - {code: "512010", name: "医药ETF易方达"}
+  - {code: "159852", name: "软件ETF嘉实"}
+  - {code: "159636", name: "港股通科技30ETF工银"}
+  - {code: "159259", name: "成长ETF易方达"}
+  - {code: "515230", name: "软件ETF国泰"}
+  - {code: "002517", name: "恺英网络"}
+  - {code: "300759", name: "康龙化成"}
+  - {code: "301165", name: "锐捷网络"}
+  - {code: "600580", name: "卧龙电驱"}
+  - {code: "160133", name: "南方天元LOF"}
+  - {code: "589020", name: "科创半导体设备ETF鹏华"}
+  - {code: "162703", name: "广发小盘LOF"}
+  - {code: "163412", name: "兴全轻资产LOF"}
+  - {code: "165313", name: "建信优势LOF"}
+  - {code: "160219", name: "医药LOF"}
+  - {code: "000001", name: "平安银行"}
+  - {code: "161914", name: "万家创业"}
+  - {code: "501026", name: "财通福享混合LOF"}
+  - {code: "160637", name: "创业板L"}
+index_benchmark: "sh000300"      # 市场状态基准：沪深300
+kline_history_days: 2500          # 首次拉取约10年日线（月线九转需要）
+
+# ---- 神奇九转 ----
+nine_turns:
+  show_from: 6          # 计数从第几天开始显示
+  min_focus: 6          # 计数达到该值才进入深度分析
+  push_from: 8          # 推送门槛：|九转计数| ≥ 8 才推送
+  cooldown_days: 5      # 同标的同方向两次推送最小间隔（交易日）
+
+# ---- 放量检测（三级过滤）----
+volume_surge:
+  vol_ratio_coarse: 2.0        # 粗筛：量比阈值
+  turnover_x_coarse: 3.0       # 粗筛：换手率相对20日均值的倍数
+  amount_x_coarse: 2.5         # 粗筛：成交额相对20日均额的倍数
+  vol_ratio_strong: 1.5        # 精筛：确认放量
+  percentile_window: 60        # 成交量历史分位窗口
+  percentile_threshold: 0.90   # 分位阈值
+
+# ---- 信号分级 ----
+signal:
+  adx_max: 40            # 趋势过强，九转失效
+  boll_bw_min: 0.05      # 布林带宽度过窄
+  level_s_score: 8       # S级分数线
+  level_a_score: 5
+  level_b_score: 2
+  stop_loss_pct: 0.02    # 结构极值外2%硬止损
+  push_levels: ["S", "A"]   # 直推级别，B级进晚报
+
+# ---- 动态阈值（按市场状态）----
+adaptive:
+  bull:  {vol_ratio: 1.3, rsi_low: 35, rsi_high: 75}
+  bear:  {vol_ratio: 1.8, rsi_low: 25, rsi_high: 65}
+  range: {vol_ratio: 1.5, rsi_low: 30, rsi_high: 70}
+
+# ---- LOF/ETF 溢价 ----
+lof:
+  premium_watch: 3.0        # 溢价%提醒
+  premium_warn: 5.0         # 溢价%警告
+  discount_watch: 2.0       # 折价%套利提醒
+  percentile_window: 60     # 溢价历史分位窗口
+  percentile_warn: 0.95
+  default_position: 0.93    # 仓位系数初始值（自校准修正）
+  share_surge_pct: 5.0      # 份额单日增幅视为套利盘进场
+
+# ---- 排序引擎 ----
+ranking:
+  filter_min_amount: 1.0e8  # 流动性门槛：成交额≥1亿
+  exclude_st: true
+  top_n: 10
+
+# ---- 调度 ----
+schedule:
+  market_state_time: "09:35"
+  intraday_times: ["10:30", "14:00"]
+  close_scan_time: "15:35"
+  heartbeat_time: "16:00"
+  quiet_hours: ["22:00", "08:00"]   # 免打扰（系统告警除外）
+
+# ---- 推送通道（填入自己的Key即可；console=仅打印）----
+push:
+  channels: ["console", "wecom_bot"]     # 可选: console / serverchan / pushplus / wecom_bot
+  serverchan:
+    sendkey: "SCT_xxx"
+  pushplus:
+    token: "xxx"
+  wecom_bot:
+    webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=941a5171-5c92-470f-bdbc-f524ede3ae5d"
+  daily_push_limit: 12
+  report_html: "push_report.html"   # 聚合推送报告：每次扫描的全部推送内容+K线图写入这同一个HTML（最新在前）
+
+db_path: "data/monitor.db"
+chart_enabled: true         # mplfinance 可用时渲染K线图
+
+# ---- Web看板 ----
+web:
+  public_url: "https://mayor-convert-dark-biological.trycloudflare.com"    # 推送卡片附带的看板地址（微信里可点开）；需公网可达。
+                    # 本机部署可用内网穿透获取，如 cpolar/ngrok: "http://xxxx.r6.cpolar.top"
+                    # 留空则推送卡不附带链接

@@ -1,0 +1,15 @@
+# Python运行时与缓存（项目自带py312，不入库）
+py312/
+__pycache__/
+*.pyc
+
+# 数据与生成产物（本地运行产生）
+data/
+push_report.html
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# 大型二进制（cloudflared请自行下载放入tools/）
+tools/cloudflared.exe
