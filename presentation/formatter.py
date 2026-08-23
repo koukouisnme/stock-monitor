@@ -61,6 +61,40 @@ def format_turn_brief(day, week=None, month=None) -> str:
     return f"日{fmt_turn(day)} ┃ 周{fmt_turn(week)} ┃ 月{fmt_turn(month)}"
 
 
+# 单一策略·神奇九转：方向含义（正计数=上涨结构=顶部预警；负计数=下跌结构=底部预警）
+_TURN_MEANING = {"up": "高位九转计数：上涨结构接近完成，警惕趋势反转向下",
+                 "down": "低位九转计数：下跌结构接近完成，关注趋势反转向上"}
+
+
+def format_nine_turn_card(code: str, name: str, turn_day, turn_week, turn_month,
+                          direction: str, fresh: bool = True,
+                          trade_date: str = "") -> str:
+    """单一策略·神奇九转卡片：只呈现九转结构本身（日/周/月计数+方向含义），
+    不含信号分级/买卖动作。fresh=新增（首次出现或计数推进），否则原有维持。"""
+    head = "顶部预警" if direction == "up" else "底部预警"
+    lines = [
+        "━" * 22,
+        f"🌀 神奇九转 · {head} | {name} {code}",
+        "━" * 22,
+        f"• 状态：{'🆕 新增' if fresh else '⏳ 原有（维持）'}",
+        "• 九转结构：",
+        _turn_line("日线", turn_day),
+        "  " + "─" * 10,
+        _turn_line("周线", turn_week),
+        "  " + "─" * 10,
+        _turn_line("月线", turn_month),
+        f"• 含义：{_TURN_MEANING.get(direction, '')}",
+        "─" * 22,
+        f"• 行情查看：{stock_url(code)}",
+    ]
+    wl = web_link(code, "day")
+    if wl:
+        lines.append(f"• 看板详情：{wl}")
+    if trade_date:
+        lines.append(f"触发：{trade_date}")
+    return "\n".join(lines)
+
+
 def format_signal_card(sig: SignalResult, vp: VolumeProfile, market_state: str,
                        hist_stats: dict = None,
                        turn_week: int = None, turn_month: int = None) -> str:
@@ -218,6 +252,7 @@ _PUSH_DOC_TMPL = """<!DOCTYPE html>
   .lv-A { border-top:3px solid #f0a400; } .lv-A .badge { background:linear-gradient(135deg,#f7b733,#f0a400); }
   .lv-B { border-top:3px solid #d1b60a; } .lv-B .badge { background:linear-gradient(135deg,#ddd83a,#d1b60a); }
   .lv-LOF { border-top:3px solid #3b7dd8; } .lv-LOF .badge { background:linear-gradient(135deg,#5a97e8,#3b7dd8); }
+  .lv-TURN { border-top:3px solid #0d9488; } .lv-TURN .badge { background:linear-gradient(135deg,#2dd4bf,#0d9488); }
   .lv-ALERT { border-top:3px solid #7c3aed; } .lv-ALERT .badge { background:linear-gradient(135deg,#a271f2,#7c3aed); }
   .lv-INFO { border-top:3px solid #6b7280; } .lv-INFO .badge { background:linear-gradient(135deg,#8b95a5,#6b7280); }
   .card-title { font-size:14.5px; font-weight:700; }
@@ -339,7 +374,7 @@ def append_push_report(scan_time: str, entries: list, path: str = "push_report.h
     return path
 
 
-_PUSH_LEVEL_ICON = {"S": "🔴", "A": "🟠", "B": "🟡", "LOF": "💠", "ALERT": "⚠️", "INFO": "ℹ️"}
+_PUSH_LEVEL_ICON = {"S": "🔴", "A": "🟠", "B": "🟡", "LOF": "💠", "TURN": "🌀", "ALERT": "⚠️", "INFO": "ℹ️"}
 _SUMMARY_DIV = "─" * 20
 
 
@@ -377,7 +412,7 @@ def format_push_summary(entries: list, report_path: str = "") -> tuple:
 def push_summary_level(entries: list) -> str:
     """汇总消息的级别：取本次最高级别（决定企微消息颜色）。"""
     lvs = {str(e.get("level", "INFO")) for e in entries}
-    for lv in ("S", "A", "LOF"):
+    for lv in ("S", "A", "LOF", "TURN"):
         if lv in lvs:
             return lv
     return "INFO"

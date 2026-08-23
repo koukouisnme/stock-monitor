@@ -17,9 +17,10 @@ from domain.volume import volume_profile
 from infrastructure.adapters import is_lof
 from presentation.chart_renderer import render_kline_chart, render_premium_chart
 from presentation.formatter import (append_push_report, format_lof_card,
-                                    format_push_summary, format_rank_list,
-                                    format_signal_card, format_turn_brief,
-                                    push_summary_level, set_web_base)
+                                    format_nine_turn_card, format_push_summary,
+                                    format_rank_list, format_signal_card,
+                                    format_turn_brief, push_summary_level,
+                                    set_web_base)
 
 
 class Orchestrator:
@@ -67,6 +68,8 @@ class Orchestrator:
         push_levels = set(self.cfg.get("signal", {}).get("push_levels", ["S", "A"]))
         # 九转推送门槛：|计数| ≥ push_from 才推送（默认8）
         push_min_count = int(self.cfg.get("nine_turns", {}).get("push_from", 8))
+        # 单一策略·神奇九转：自选池|九转计数|≥门槛即推送，不受信号级别/动作约束
+        single_mode = bool(self.cfg.get("nine_turns", {}).get("single_strategy", False))
         snapshot_rows, lof_states, signal_results = [], [], []
         push_entries = []   # 本次扫描全部推送内容 → 聚合进同一个HTML报告，只发一条汇总
         df_cache = {}  # code → K线DataFrame（LOF溢价图渲染用）
@@ -118,29 +121,55 @@ class Orchestrator:
                 prev_turn = self.cache.get_state(code)
                 self.cache.set_state(code, turn.count)
 
-                # 推送收集（级别过滤 + 九转门槛，不去重：每次扫描命中即收）：
+                # 推送收集（不去重：每次扫描命中即收）：
+                # 单一策略模式=|九转计数|≥门槛即推；常规模式=级别过滤+动作+九转门槛。
                 # 全部内容聚合进同一个HTML报告，扫描结束后只发一条汇总消息
-                if (sig.level in push_levels and sig.action != "hold"
-                        and abs(turn.count) >= push_min_count):
+                if single_mode:
+                    hit = abs(turn.count) >= push_min_count
+                else:
+                    hit = (sig.level in push_levels and sig.action != "hold"
+                           and abs(turn.count) >= push_min_count)
+                if hit:
                     direction = "up" if turn.count > 0 else "down"
                     # 新增=上次无计数或计数有变化（新触发/计数推进）；原有=计数与上次一致（维持）
                     fresh = prev_turn is None or prev_turn != turn.count
-                    card = format_signal_card(sig, vp, self.market_state,
-                                              hist_stats.get(f"{sig.level}-{sig.action}"),
-                                              turn_week=turn_weekly, turn_month=turn_monthly)
-                    image = render_kline_chart(df, sig) if self.cfg.get("chart_enabled", True) else None
-                    push_entries.append({
-                        "level": sig.level,
-                        "title": f"{sig.level}级{'买入' if sig.action == 'buy' else '卖出'}信号 {name} {code}",
-                        "text": card, "image": image, "fresh": fresh,
-                        "turn_day": sig.turn, "turn_week": turn_weekly,
-                        "turn_month": turn_monthly,
-                        "info": f"{'🆕新增' if fresh else '⏳原有'} 九转 "
-                                f"{format_turn_brief(sig.turn, turn_weekly, turn_monthly)}"
-                                f"｜得分{sig.score}"})
-                    self.cache.record_push(code, direction, trade_date, sig.level)
-                    self.cache.add_tracking(sig)
-                    signals_pushed += 1
+                    if single_mode:
+                        # 单一策略·神奇九转：卡片只呈现九转结构（无信号分级/买卖动作）
+                        title = (f"九转策略 · {'顶部预警' if direction == 'up' else '底部预警'}"
+                                 f" {name} {code}")
+                        card = format_nine_turn_card(code, name, turn.count,
+                                                     turn_weekly, turn_monthly,
+                                                     direction, fresh, sig.trade_date)
+                        image = (render_kline_chart(df, None, code=code, name=name)
+                                 if self.cfg.get("chart_enabled", True) else None)
+                        push_entries.append({
+                            "level": "TURN",
+                            "title": title, "text": card, "image": image,
+                            "fresh": fresh,
+                            "turn_day": turn.count, "turn_week": turn_weekly,
+                            "turn_month": turn_monthly,
+                            "info": f"{'🆕新增' if fresh else '⏳原有'} 九转 "
+                                    f"{format_turn_brief(turn.count, turn_weekly, turn_monthly)}"})
+                        self.cache.record_push(code, direction, trade_date, "TURN")
+                        self.cache.add_tracking(sig)
+                        signals_pushed += 1
+                    else:
+                        card = format_signal_card(sig, vp, self.market_state,
+                                                  hist_stats.get(f"{sig.level}-{sig.action}"),
+                                                  turn_week=turn_weekly, turn_month=turn_monthly)
+                        image = render_kline_chart(df, sig) if self.cfg.get("chart_enabled", True) else None
+                        push_entries.append({
+                            "level": sig.level,
+                            "title": f"{sig.level}级{'买入' if sig.action == 'buy' else '卖出'}信号 {name} {code}",
+                            "text": card, "image": image, "fresh": fresh,
+                            "turn_day": sig.turn, "turn_week": turn_weekly,
+                            "turn_month": turn_monthly,
+                            "info": f"{'🆕新增' if fresh else '⏳原有'} 九转 "
+                                    f"{format_turn_brief(sig.turn, turn_weekly, turn_monthly)}"
+                                    f"｜得分{sig.score}"})
+                        self.cache.record_push(code, direction, trade_date, sig.level)
+                        self.cache.add_tracking(sig)
+                        signals_pushed += 1
             except Exception as e:  # 单标的失败不影响整体
                 errors += 1
                 print(f"  [错误] {code}: {e}")

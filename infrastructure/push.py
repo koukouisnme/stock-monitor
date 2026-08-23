@@ -69,7 +69,7 @@ class WecomBotChannel:
     _MAX_MD = 4096               # 企微markdown字节上限
     # 级别 → 企微支持的颜色（info绿 / warning橙 / comment灰）
     _LV_COLOR = {"S": "warning", "A": "warning", "B": "comment",
-                 "LOF": "info", "TEST": "comment", "INFO": "info"}
+                 "LOF": "info", "TURN": "warning", "TEST": "comment", "INFO": "info"}
 
     def __init__(self, conf: dict):
         self.webhook = conf.get("webhook", "")

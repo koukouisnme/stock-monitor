@@ -2465,7 +2465,7 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
     @app.post("/api/ops/push_test")
     def ops_push_test():
         """运维中心·强制推送测试：绕过分级/去重/限额闸门，直推微信验证通道（标记TEST，不写推送历史）。
-        kind=nine → 自选池任一周期|九转计数|≥8，按推送历史区分新增/原有，日周月以分割线分隔；
+        kind=nine → 单一策略·神奇九转：自选池任一周期|九转计数|≥8，按推送历史区分新增/原有，日周月以分割线分隔；
         kind=premium → 真LOF(16/50)溢价触发提醒线。"""
         d = request.get_json(silent=True) or {}
         kind = d.get("kind")
@@ -2505,7 +2505,7 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
                 row = f"> **{name}** {code}：{' ┃ '.join(tags)}"
                 (keep_lines if direction in hist_dirs.get(code, set())
                  else fresh_lines).append(row)
-            title = f"【测试推送】九转满足标的 {len(items)}只"
+            title = f"【测试推送】单一策略·九转满足标的 {len(items)}只"
             parts = []
             if fresh_lines:
                 parts.append(f"\n🆕 **新增（{len(fresh_lines)}只）**\n" + "\n".join(fresh_lines))

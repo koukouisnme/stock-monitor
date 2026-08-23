@@ -64,6 +64,7 @@ nine_turns:
   min_focus: 6          # 计数达到该值才进入深度分析
   push_from: 8          # 推送门槛：|九转计数| ≥ 8 才推送
   cooldown_days: 5      # 同标的同方向两次推送最小间隔（交易日）
+  single_strategy: true # 单一策略推送：自选池|九转计数|≥push_from 即推送（不受信号分级/买卖动作约束），区分新增/原有
 
 # ---- 放量检测（三级过滤）----
 volume_surge:
@@ -131,6 +132,6 @@ chart_enabled: true         # mplfinance 可用时渲染K线图
 
 # ---- Web看板 ----
 web:
-  public_url: "https://mayor-convert-dark-biological.trycloudflare.com"    # 推送卡片附带的看板地址（微信里可点开）；需公网可达。
+  public_url: "https://very-jason-bailey-are.trycloudflare.com"    # 推送卡片附带的看板地址（微信里可点开）；需公网可达。
                     # 本机部署可用内网穿透获取，如 cpolar/ngrok: "http://xxxx.r6.cpolar.top"
                     # 留空则推送卡不附带链接

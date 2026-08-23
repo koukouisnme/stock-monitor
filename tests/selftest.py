@@ -329,13 +329,82 @@ def test_push_report_format():
     os.remove(path)
 
 
+def test_single_strategy_push():
+    print("[12] 单一策略·神奇九转推送")
+    from presentation.formatter import (append_push_report, format_nine_turn_card,
+                                        format_push_summary, push_summary_level)
+    # 顶部预警卡（新增，日线+8计数中）
+    card_up = format_nine_turn_card("600900", "长江电力", 8, 5, -2, "up",
+                                    fresh=True, trade_date="2026-08-23")
+    check("九转卡顶部预警标题", "🌀 神奇九转 · 顶部预警 | 长江电力 600900" in card_up)
+    check("九转卡新增状态行", "🆕 新增" in card_up)
+    check("九转卡日周月计数", "日线：+8（计数中）" in card_up
+          and "周线：+5（计数中）" in card_up and "月线：-2（计数中）" in card_up)
+    check("九转卡顶部含义", "警惕趋势反转向下" in card_up)
+    check("九转卡查看链接", "https://gu.qq.com/sh600900" in card_up)
+    check("九转卡触发日期", "触发：2026-08-23" in card_up)
+    check("九转卡不含信号分级", "买入" not in card_up and "得分" not in card_up
+          and "止损" not in card_up)
+    # 底部预警卡（原有维持，日线-9完成）
+    card_dn = format_nine_turn_card("000333", "美的集团", -9, None, 0, "down",
+                                    fresh=False, trade_date="2026-08-23")
+    check("九转卡底部预警标题", "底部预警 | 美的集团 000333" in card_dn)
+    check("九转卡原有状态行", "⏳ 原有（维持）" in card_dn)
+    check("九转卡完成标记", "日线：-9（完成）" in card_dn)
+    check("九转卡周线无/月线0", "周线：无" in card_dn and "月线：0" in card_dn)
+    check("九转卡底部含义", "关注趋势反转向上" in card_dn)
+
+    # 门槛语义矩阵：单一模式只看|计数|≥push_from；常规模式要求级别+动作+计数
+    push_levels = {"S", "A"}
+    for mode, count, level, action, expect in [
+        ("single", 8, "B", "hold", True),   # 单一：B级hold但九转8 → 推
+        ("single", -9, "C", "hold", True),  # 单一：低9完成 → 推
+        ("single", 5, "S", "buy", False),   # 单一：九转不足门槛 → 不推
+        ("normal", 8, "B", "buy", False),   # 常规：B级 → 不推
+        ("normal", 8, "S", "hold", False),  # 常规：hold → 不推
+        ("normal", 8, "S", "buy", True),    # 常规：S级buy+九转8 → 推
+    ]:
+        single_mode = mode == "single"
+        hit = (abs(count) >= 8 if single_mode
+               else level in push_levels and action != "hold" and abs(count) >= 8)
+        check(f"门槛语义[{mode}|{count:+d}|{level}-{action}]", hit == expect)
+
+    # 汇总消息：TURN条目进新增/原有分组 + HTML报告TURN样式
+    entries = [
+        {"level": "TURN", "title": "九转策略 · 顶部预警 长江电力 600900", "text": card_up,
+         "fresh": True, "turn_day": 8, "turn_week": 5, "turn_month": -2,
+         "info": "🆕新增 九转 日+8 ┃ 周+5 ┃ 月-2"},
+        {"level": "TURN", "title": "九转策略 · 底部预警 美的集团 000333", "text": card_dn,
+         "fresh": False, "turn_day": -9, "turn_week": None, "turn_month": 0,
+         "info": "⏳原有 九转 日-9 ┃ 周无 ┃ 月0"},
+    ]
+    title, body = format_push_summary(entries)
+    check("单一策略汇总计数", title == "收盘扫描报告 · 2条", title)
+    check("单一策略汇总分组新增", "🆕 新增九转 1条" in body)
+    check("单一策略汇总分组原有", "⏳ 原有九转 1条（维持）" in body)
+    check("单一策略汇总图标", "🌀 九转策略 · 顶部预警 长江电力 600900" in body)
+    check("单一策略汇总级别TURN", push_summary_level(entries) == "TURN")
+    path = append_push_report("2026-08-23 15:35", entries, "data/_test_turn_report.html")
+    doc = open(path, encoding="utf-8").read()
+    check("TURN卡片青色样式", doc.count("card lv-TURN") == 2)
+    check("TURN日周月分割线", doc.count('class="turn-sep"') == 4,
+          f"seps={doc.count('class=\"turn-sep\"')}")
+    check("TURN新增/原有徽标", 'class="tag tag-new">🆕 新增' in doc
+          and 'class="tag tag-keep">⏳ 原有' in doc)
+    check("TURN完成标记", '<span class="done">完成</span>' in doc)
+    check("TURN头部计数", '🆕新增<span class="n">1</span>' in doc
+          and '⏳原有<span class="k">1</span>' in doc)
+    os.remove(path)
+
+
 if __name__ == "__main__":
     print("=" * 46)
     print("领域层与应用层自测（全部离线合成数据）")
     print("=" * 46)
     for fn in (test_nine_turns, test_resampler, test_indicators, test_volume,
                test_signal_engine, test_lof, test_ranking, test_url_view,
-               test_end_to_end, test_push_charts, test_push_report_format):
+               test_end_to_end, test_push_charts, test_push_report_format,
+               test_single_strategy_push):
         try:
             fn()
         except Exception as e:

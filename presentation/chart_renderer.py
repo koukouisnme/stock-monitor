@@ -32,10 +32,12 @@ OUTPUT_DIR = os.path.join("data", "charts")
 _UP, _DN, _ACC = "#E8463A", "#2E9E5B", "#3B7DD8"  # A股红涨绿跌
 
 
-def render_kline_chart(df, sig=None, lookback: int = 40, vol_ratio=None) -> str:
-    """信号K线卡。返回PNG路径；依赖缺失/数据不足/异常返回None。"""
+def render_kline_chart(df, sig=None, lookback: int = 40, vol_ratio=None,
+                       code: str = None, name: str = "") -> str:
+    """信号K线卡。返回PNG路径；依赖缺失/数据不足/异常返回None。
+    code/name：sig为None时的图命名与标题（单一策略九转卡场景）。"""
     try:
-        return _render_kline(df, sig, lookback, vol_ratio)
+        return _render_kline(df, sig, lookback, vol_ratio, code, name)
     except Exception:
         return None
 
@@ -61,7 +63,7 @@ def _capsule(fig, text: str):
                                         ec="#C9CED6", lw=0.8))
 
 
-def _render_kline(df, sig, lookback: int, vol_ratio) -> str:
+def _render_kline(df, sig, lookback: int, vol_ratio, code=None, name="") -> str:
     if not HAS_MPF or df is None or len(df) < 30:
         return None
     d = _prep(df, lookback)
@@ -74,8 +76,8 @@ def _render_kline(df, sig, lookback: int, vol_ratio) -> str:
     apds = [mpf.make_addplot(ma5, color=_ACC, width=1.2, label="MA5")]
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    code = getattr(sig, "code", "chart")
-    name = getattr(sig, "name", "")
+    code = code or getattr(sig, "code", "chart")
+    name = name or getattr(sig, "name", "")
     path = os.path.join(OUTPUT_DIR, f"{code}_{datetime.now():%Y%m%d_%H%M%S}.png")
 
     mc = mpf.make_marketcolors(up=_UP, down=_DN, edge="inherit", wick="inherit", volume="inherit")
