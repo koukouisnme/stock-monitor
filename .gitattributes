@@ -1,0 +1,8 @@
+# Windows批处理必须CRLF换行（LF会导致cmd解析异常/闪退）
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.lnk binary
+*.ico binary
+*.png binary
+*.db binary
