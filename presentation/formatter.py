@@ -224,30 +224,38 @@ _PUSH_DOC_TMPL = """<!DOCTYPE html>
 <style>
   :root {
     --up:#e8463a; --down:#2e9e5b; --muted:#6b7280; --line:#e5e7eb;
-    --card-r:12px; --shadow:0 2px 10px rgba(17,24,39,.07), 0 1px 3px rgba(17,24,39,.06);
+    --acc:#3b7dd8; --card-r:14px;
+    --shadow:0 2px 10px rgba(17,24,39,.07), 0 1px 3px rgba(17,24,39,.06);
   }
-  body { margin:0; background:#eef1f6; font-family:"Microsoft YaHei",-apple-system,"Segoe UI",sans-serif; color:#222; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#eef1f6; font-family:"Microsoft YaHei",-apple-system,"Segoe UI",sans-serif; color:#1f2430; }
   header { background:linear-gradient(135deg,#111827 0%,#1f2937 55%,#312e81 100%); color:#fff; padding:20px 24px 18px; }
   header h1 { margin:0; font-size:20px; letter-spacing:.5px; }
   header h1::before { content:"📈 "; }
   header p { margin:6px 0 0; font-size:12.5px; color:#9ca3af; }
-  main { max-width:920px; margin:0 auto; padding:18px 14px 40px; }
-  section.scan { margin-bottom:26px; }
-  section.scan h2 { font-size:15px; color:#6b7280; border-left:4px solid #9ca3af; padding-left:10px; margin:0 0 12px; }
-  section.scan h2 .cnt { color:#fff; background:#9ca3af; border-radius:10px; font-size:12px; padding:1px 9px; margin-left:8px; }
-  section.scan h2 .sub { font-size:12px; font-weight:600; margin-left:8px; }
-  section.scan h2 .sub .n { color:var(--up); }
-  section.scan h2 .sub .k { color:var(--muted); }
-  section.scan.new { background:#fffaf9; border:1px solid #f3d4d0; border-radius:12px; padding:14px 14px 2px; box-shadow:var(--shadow); }
-  section.scan.new h2 { color:#111827; border-left-color:#e8463a; }
-  section.scan.new h2::before { content:"🆕 本次新增 · "; color:#e8463a; }
-  section.scan.new h2 .cnt { background:#e8463a; }
-  .hist-div { display:flex; align-items:center; gap:12px; margin:2px 0 26px; color:#9ca3af; font-size:12.5px; }
-  .hist-div::before, .hist-div::after { content:""; flex:1; height:1px; background:#d1d5db; }
+  main { max-width:920px; margin:0 auto; padding:18px 14px 60px; }
+
+  /* ---- 本次扫描段头：时间 + 统计胶囊 ---- */
+  section.scan { margin-bottom:24px; }
+  .scan-hd { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:0 2px 14px; }
+  .scan-hd .time { font-size:16px; font-weight:800; color:#111827; letter-spacing:.3px; }
+  .pill { font-size:12px; font-weight:700; border-radius:999px; padding:2px 11px; background:#fff; border:1px solid var(--line); color:#4b5563; }
+  .pill b { color:var(--up); font-size:12.5px; }
+  .pill .k { color:var(--muted); }
+
+  /* ---- 组头：新增 / 原有 / 其他 ---- */
+  .grp { display:flex; align-items:center; gap:8px; margin:18px 2px 10px; font-size:13.5px; font-weight:800; letter-spacing:.5px; }
+  .grp::after { content:""; flex:1; height:1px; background:#d8dde6; }
+  .grp .n { color:#fff; border-radius:999px; padding:0 8px; font-size:11px; line-height:17px; }
+  .grp-new { color:#d64541; } .grp-new .n { background:#e8463a; }
+  .grp-keep { color:#6b7280; } .grp-keep .n { background:#9aa3b2; }
+  .grp-other { color:#3b7dd8; } .grp-other .n { background:#3b7dd8; }
+
+  /* ---- 卡片 ---- */
   .card { background:#fff; border-radius:var(--card-r); box-shadow:var(--shadow); margin-bottom:14px; overflow:hidden; transition:transform .15s ease, box-shadow .15s ease; }
   .card:hover { transform:translateY(-2px); box-shadow:0 6px 18px rgba(17,24,39,.12); }
-  .card-head { display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px solid #eef0f3; }
-  .badge { font-size:12px; font-weight:700; color:#fff; border-radius:6px; padding:2px 8px; flex:none; letter-spacing:.5px; }
+  .card-head { display:flex; align-items:center; gap:10px; padding:12px 16px; }
+  .badge { font-size:12px; font-weight:700; color:#fff; border-radius:6px; padding:2px 9px; flex:none; letter-spacing:.5px; }
   .lv-S { border-top:3px solid #e8463a; } .lv-S .badge { background:linear-gradient(135deg,#f0655a,#e8463a); }
   .lv-A { border-top:3px solid #f0a400; } .lv-A .badge { background:linear-gradient(135deg,#f7b733,#f0a400); }
   .lv-B { border-top:3px solid #d1b60a; } .lv-B .badge { background:linear-gradient(135deg,#ddd83a,#d1b60a); }
@@ -255,25 +263,67 @@ _PUSH_DOC_TMPL = """<!DOCTYPE html>
   .lv-TURN { border-top:3px solid #0d9488; } .lv-TURN .badge { background:linear-gradient(135deg,#2dd4bf,#0d9488); }
   .lv-ALERT { border-top:3px solid #7c3aed; } .lv-ALERT .badge { background:linear-gradient(135deg,#a271f2,#7c3aed); }
   .lv-INFO { border-top:3px solid #6b7280; } .lv-INFO .badge { background:linear-gradient(135deg,#8b95a5,#6b7280); }
-  .card-title { font-size:14.5px; font-weight:700; }
+  .card-title { font-size:15px; font-weight:800; }
   .tag { font-size:11px; font-weight:700; border-radius:999px; padding:2px 10px; margin-left:auto; flex:none; }
   .tag-new { color:#fff; background:linear-gradient(135deg,#ff7d70,#e8463a); box-shadow:0 1px 4px rgba(232,70,58,.35); }
   .tag-keep { color:#5b6472; background:#eceff3; border:1px solid #dde1e8; }
-  .turn-strip { display:flex; align-items:stretch; border-bottom:1px solid #eef0f3; background:linear-gradient(180deg,#fafbfd,#f3f5f9); }
-  .turn-cell { flex:1; text-align:center; padding:10px 4px 8px; }
-  .turn-sep { width:0; flex:none; border-left:1px dashed #b9c1cf; margin:9px 0; }
+
+  /* ---- 九转方向横幅（单一策略卡） ---- */
+  .dir { display:flex; align-items:center; gap:7px; padding:8px 16px; font-size:12.5px; font-weight:700; }
+  .dir-up { background:linear-gradient(90deg,#fdeeec,#fffdfc); color:#b93a30; border-top:1px solid #f6d9d5; border-bottom:1px solid #f6d9d5; }
+  .dir-down { background:linear-gradient(90deg,#e9f6ee,#fbfefd); color:#1f7a4a; border-top:1px solid #d3ecdd; border-bottom:1px solid #d3ecdd; }
+
+  /* ---- 九转条：日/周/月三格，竖向虚线分割 ---- */
+  .turn-strip { display:flex; align-items:stretch; background:linear-gradient(180deg,#fafbfd,#f3f5f9); }
+  .turn-cell { flex:1; text-align:center; padding:11px 4px 9px; }
+  .turn-sep { width:0; flex:none; border-left:1px dashed #b9c1cf; margin:10px 0; }
   .turn-cell .lbl { display:block; font-size:11px; color:var(--muted); margin-bottom:4px; letter-spacing:2px; }
-  .turn-cell .val { display:inline-block; font-size:16px; font-weight:800; font-family:Consolas,"Microsoft YaHei",monospace; min-width:44px; }
+  .turn-cell .val { display:inline-block; font-size:17px; font-weight:800; font-family:Consolas,"Microsoft YaHei",monospace; min-width:44px; }
   .turn-cell .done { display:block; font-size:10.5px; font-weight:700; margin-top:3px; color:#b45309; }
   .turn-cell .done::before { content:"✓ "; }
   .tv-up { color:var(--up); } .tv-down { color:var(--down); } .tv-zero { color:#9ca3af; }
-  pre.card-body { margin:0; padding:12px 14px; font-size:12.8px; line-height:1.75; white-space:pre-wrap; word-break:break-all; font-family:Consolas,"Microsoft YaHei",monospace; color:#333; }
-  pre.card-body a { color:#3b7dd8; }
+
+  /* ---- 结构化字段网格（替代纯文本pre） ---- */
+  .card-fields { display:grid; grid-template-columns:max-content 1fr; gap:8px 16px; padding:13px 16px; }
+  .f-k { font-size:12px; color:var(--muted); padding-top:2px; white-space:nowrap; }
+  .f-v { font-size:13.5px; font-weight:600; color:#26303f; word-break:break-all; line-height:1.55; }
+  .f-v a { color:var(--acc); text-decoration:none; }
+
+  /* ---- 信号理由列表 ---- */
+  .card-reasons { padding:0 16px 4px; }
+  .card-reasons ul { margin:0; padding:0; }
+  .card-reasons li { list-style:none; font-size:12.5px; color:#4b5563; line-height:1.95; padding-left:13px; position:relative; }
+  .card-reasons li::before { content:"·"; position:absolute; left:2px; color:#9aa3b2; font-weight:800; }
+
+  /* ---- 链接按钮组 ---- */
+  .card-links { display:flex; flex-wrap:wrap; gap:8px; padding:11px 16px 14px; }
+  .btn { display:inline-flex; align-items:center; gap:5px; font-size:12.5px; font-weight:700; color:var(--acc); background:#eef4fd; border:1px solid #d5e3f8; border-radius:8px; padding:6px 13px; text-decoration:none; transition:background .12s; }
+  .btn:hover { background:#e2edfc; }
+  .footer-meta { padding:0 16px 13px; font-size:11.5px; color:#9aa3b2; }
   img.chart { display:block; width:100%; border-top:1px solid #eef0f3; }
+
+  /* ---- 历史推送：折叠 ---- */
+  .hist-div { display:flex; align-items:center; gap:12px; margin:30px 0 14px; color:#9ca3af; font-size:12.5px; }
+  .hist-div::before, .hist-div::after { content:""; flex:1; height:1px; background:#d1d5db; }
+  details.scan-fold { background:#fff; border:1px solid #e5e9f0; border-radius:12px; margin-bottom:10px; overflow:hidden; }
+  details.scan-fold summary { cursor:pointer; padding:11px 16px; font-size:13px; font-weight:700; color:#4b5563; list-style:none; display:flex; align-items:center; gap:8px; user-select:none; }
+  details.scan-fold summary::-webkit-details-marker { display:none; }
+  details.scan-fold summary::before { content:"▸"; color:#9aa3b2; font-size:11px; transition:transform .15s; }
+  details.scan-fold[open] summary::before { transform:rotate(90deg); }
+  details.scan-fold summary:hover { color:#111827; }
+  .fold-body { padding:6px 12px 12px; border-top:1px dashed #e8ebf0; }
+  .fold-body .card { box-shadow:0 1px 4px rgba(17,24,39,.06); }
+
+  @media (max-width:560px) {
+    .card-fields { grid-template-columns:max-content 1fr; gap:7px 12px; padding:11px 13px; }
+    .card-head, .card-links, .footer-meta { padding-left:13px; padding-right:13px; }
+    .dir { padding:7px 13px; }
+    .scan-hd .time { font-size:14.5px; }
+  }
 </style>
 </head>
 <body>
-<header><h1>A股监控 · 推送报告</h1><p>每次扫描的全部推送内容（信号卡 / LOF卡 / K线图）聚合在此；九转条目标注「新增 / 原有」，日·周·月以分割线分隔</p></header>
+<header><h1>A股监控 · 推送报告</h1><p>每次扫描的全部推送内容聚合在此：🆕新增 / ⏳原有分组，九转日·周·月分割展示；历史推送默认折叠</p></header>
 <main>
 <div id="feed">
 </div>
@@ -317,42 +367,143 @@ def _turn_strip_html(e: dict) -> str:
             + cell("月线", e.get("turn_month")) + "</div>\n")
 
 
+def _parse_card_fields(text: str):
+    """微信卡文本 → 结构化（字段/理由/链接/脚注）。
+    分隔线与已由HTML结构呈现的行（标题/日周月/状态/九转结构）跳过，消除排版噪音。"""
+    fields, reasons, links, footers = [], [], [], []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or set(line) <= set("━─"):
+            continue
+        if line.startswith("•"):
+            body = line[1:].strip()
+            if "：" not in body:
+                continue
+            k, v = (x.strip() for x in body.split("：", 1))
+            if k in ("行情查看", "看板详情"):
+                links.append((k, v))
+            elif k in ("状态", "九转结构"):
+                pass                    # tag徽标 / 九转条已呈现
+            else:
+                fields.append((k, v))
+        elif line.startswith("·"):
+            reasons.append(line[1:].strip())
+        elif line.startswith("触发"):
+            if "｜" in line:            # 信号卡：触发日期 + 回复提示
+                trig, reply = line.split("｜", 1)
+                fields.append(("触发", trig.split("：", 1)[1].strip() if "：" in trig else trig.strip()))
+                footers.append(reply.strip())
+            elif "：" in line:
+                fields.append(("触发", line.split("：", 1)[1].strip()))
+        elif line.startswith("⚠"):
+            fields.append(("注意", line[1:].strip()))
+    return fields, reasons, links, footers
+
+
 def _push_card_html(e: dict) -> str:
+    """结构化卡片：头部 → 方向横幅(TURN) → 九转条 → 字段网格 → 理由 → 链接按钮 → K线图。"""
     level = _html.escape(str(e.get("level", "INFO")))
-    img = ""
-    if e.get("image") and os.path.exists(e["image"]):
-        src = _html.escape(str(e["image"]).replace("\\", "/"))
-        img = f'\n<img class="chart" src="{src}" alt="chart" loading="lazy">'
-    body = _linkify(_html.escape(str(e.get("text", ""))))
+    parts = [f'<div class="card lv-{level}">']
     # 九转条目：新增(红底白字) / 原有(灰底) 徽标；其余类型不标
     if "turn_day" in e:
         tag = ('<span class="tag tag-new">🆕 新增</span>' if e.get("fresh")
                else '<span class="tag tag-keep">⏳ 原有</span>')
     else:
         tag = ""
-    return (f'<div class="card lv-{level}">\n'
-            f'  <div class="card-head"><span class="badge">{level}</span>'
-            f'<span class="card-title">{_html.escape(str(e.get("title", "")))}</span>{tag}</div>\n'
-            + _turn_strip_html(e)
-            + f'  <pre class="card-body">{body}</pre>{img}\n'
-            f'</div>')
+    parts.append(f'<div class="card-head"><span class="badge">{level}</span>'
+                 f'<span class="card-title">{_html.escape(str(e.get("title", "")))}</span>{tag}</div>')
+    # 单一策略卡：方向横幅（正计数=顶部预警 / 负计数=底部预警）
+    if level == "TURN":
+        up = (e.get("turn_day") or 0) > 0
+        parts.append('<div class="dir dir-up">▲ 顶部预警 · 高位九转计数，警惕趋势反转向下</div>' if up
+                     else '<div class="dir dir-down">▼ 底部预警 · 低位九转计数，关注趋势反转向上</div>')
+    parts.append(_turn_strip_html(e))
+    fields, reasons, links, footers = _parse_card_fields(str(e.get("text", "")))
+    if fields:
+        rows = "".join(
+            f'<div class="f-k">{_html.escape(k)}</div>'
+            f'<div class="f-v">{_linkify(_html.escape(v))}</div>' for k, v in fields)
+        parts.append(f'<div class="card-fields">{rows}</div>')
+    if reasons:
+        lis = "".join(f"<li>{_linkify(_html.escape(r))}</li>" for r in reasons)
+        parts.append(f'<div class="card-reasons"><ul>{lis}</ul></div>')
+    if links:
+        btns = "".join(
+            f'<a class="btn" href="{_html.escape(u)}" target="_blank">'
+            f'{"📈" if k == "行情查看" else "🖥"} {_html.escape(k)}</a>' for k, u in links)
+        parts.append(f'<div class="card-links">{btns}</div>')
+    if footers:
+        parts.append(f'<div class="footer-meta">{_html.escape(" ｜ ".join(footers))}</div>')
+    if e.get("image") and os.path.exists(e["image"]):
+        src = _html.escape(str(e["image"]).replace("\\", "/"))
+        parts.append(f'<img class="chart" src="{src}" alt="chart" loading="lazy">')
+    parts.append("</div>")
+    return "\n".join(parts)
+
+
+def _scan_section_html(scan_time: str, entries: list) -> str:
+    """一次扫描的段落：时间头 + 统计胶囊，组内按 🆕新增/⏳原有/其他 分组。"""
+    turn_e = [e for e in entries if "turn_day" in e]
+    fresh = [e for e in turn_e if e.get("fresh")]
+    keep = [e for e in turn_e if not e.get("fresh")]
+    others = [e for e in entries if "turn_day" not in e]
+    n_new, n_keep = len(fresh), len(keep)
+    hd = [f'<header class="scan-hd"><span class="time">{_html.escape(scan_time)}</span>'
+          f'<span class="pill">共 {len(entries)} 条</span>']
+    if n_new + n_keep:
+        hd.append(f'<span class="pill">🆕新增 <b>{n_new}</b></span>'
+                  f'<span class="pill">⏳原有 <span class="k">{n_keep}</span></span>')
+    hd.append("</header>")
+    body = ["".join(hd)]
+    if fresh:
+        body.append(f'<div class="grp grp-new">🆕 新增<span class="n">{n_new}</span></div>')
+        body.extend(_push_card_html(e) for e in fresh)
+    if keep:
+        body.append(f'<div class="grp grp-keep">⏳ 原有 · 维持<span class="n">{n_keep}</span></div>')
+        body.extend(_push_card_html(e) for e in keep)
+    if others:
+        body.append(f'<div class="grp grp-other">其他提醒<span class="n">{len(others)}</span></div>')
+        body.extend(_push_card_html(e) for e in others)
+    return (f'\n{_PUSH_SECTION_MARK}\n<section class="scan">\n'
+            + "\n".join(body) + "\n</section>\n")
+
+
+def _fold_old_section(block: str) -> str:
+    """历史扫描段 → 折叠details（已是details的原样返回）。"""
+    if '<details class="scan-fold"' in block[:80]:
+        return block
+    # 摘要：优先旧h2文本，其次新scan-hd时间
+    label = ""
+    m = re.search(r"<h2>(.*?)</h2>", block, re.S)
+    if m:
+        label = re.sub(r"<[^>]+>", " ", m.group(1))
+        label = re.sub(r"\s+", " ", label).strip().replace("收盘扫描 · ", "")
+    else:
+        t = re.search(r'<span class="time">(.*?)</span>', block, re.S)
+        c = re.search(r'<span class="pill">共 (\d+) 条</span>', block, re.S)
+        if t:
+            label = t.group(1) + (f" · {c.group(1)}条" if c else "")
+    label = label or "历史扫描"
+    mm = re.match(r"([\d-]+ [\d:]+)(?:\s*·?\s*(\d+条))?", label)
+    if mm:
+        label = f"{mm.group(1)} · {mm.group(2)}" if mm.group(2) else mm.group(1)
+    body = re.sub(r"\n*<h2>.*?</h2>\n*", "\n", block, flags=re.S)
+    body = re.sub(r'\n*<header class="scan-hd">.*?</header>\n*', "\n", body, flags=re.S)
+    body = re.sub(r"^\s*<!--SCAN-->\s*", "", body)
+    body = re.sub(r"^\s*<section[^>]*>\s*", "", body)
+    body = re.sub(r"\s*</section>\s*$", "", body)
+    return (f'\n{_PUSH_SECTION_MARK}\n<details class="scan-fold">'
+            f'<summary>🕘 {_html.escape(label)}</summary>\n'
+            f'<div class="fold-body">\n{body.strip()}\n</div>\n</details>')
 
 
 def append_push_report(scan_time: str, entries: list, path: str = "push_report.html") -> str:
-    """把一次扫描的全部推送条目写入同一个HTML报告：新扫描置顶并标注“本次新增”，
-    与历史推送之间加分割线；九转条目标注新增/原有；保留最近30次。返回文件路径。"""
+    """把一次扫描的全部推送条目写入同一个HTML报告：新扫描置顶（分组展示），
+    历史推送折叠收起；保留最近30次。返回文件路径。"""
     if not entries:
         return ""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    n_new = sum(1 for e in entries if e.get("fresh") and "turn_day" in e)
-    n_keep = sum(1 for e in entries if not e.get("fresh") and "turn_day" in e)
-    sub = (f'<span class="sub">🆕新增<span class="n">{n_new}</span>'
-           f' ／ ⏳原有<span class="k">{n_keep}</span></span>' if n_new + n_keep else "")
-    section = (f'\n{_PUSH_SECTION_MARK}\n<section class="scan new">\n'
-               f'<h2>收盘扫描 · {_html.escape(scan_time)}'
-               f'<span class="cnt">{len(entries)}条</span>{sub}</h2>\n'
-               + "\n".join(_push_card_html(e) for e in entries)
-               + "\n</section>\n")
+    section = _scan_section_html(scan_time, entries)
     doc = ""
     if os.path.exists(path):
         try:
@@ -363,14 +514,13 @@ def append_push_report(scan_time: str, entries: list, path: str = "push_report.h
     if _PUSH_FEED_OPEN not in doc:   # 首次生成或文件损坏 → 重建骨架
         doc = _PUSH_DOC_TMPL
     head = doc.split(_PUSH_FEED_OPEN, 1)[0] + _PUSH_FEED_OPEN
-    old_sections = re.findall(
-        r"\n<!--SCAN-->\n<section class=\"scan(?: new)?\">.*?</section>", doc, re.S)
-    # 历史段去掉“本次新增”高亮：只有最新一段保持 new 标注
-    old_html = "".join(old_sections[:_PUSH_MAX_SECTIONS - 1]).replace(
-        '<section class="scan new">', '<section class="scan">')
-    hist_div = '\n<div class="hist-div">以下为历史推送</div>\n' if old_html else ""
+    blocks = re.findall(
+        r"\n?<!--SCAN-->\n<(?:section class=\"scan(?: new)?\"|details class=\"scan-fold\").*?"
+        r"</(?:section|details)>", doc, re.S)
+    folded = [_fold_old_section(b) for b in blocks[:_PUSH_MAX_SECTIONS - 1]]
+    hist_div = '\n<div class="hist-div">🕘 历史推送 · 点击展开</div>\n' if folded else ""
     with open(path, "w", encoding="utf-8") as f:
-        f.write(head + section + hist_div + old_html + _PUSH_TAIL)
+        f.write(head + section + hist_div + "\n".join(folded) + _PUSH_TAIL)
     return path
 
 

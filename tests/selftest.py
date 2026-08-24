@@ -307,7 +307,7 @@ def test_push_report_format():
     check("汇总分组原有", "⏳ 原有九转 1条（维持）" in body)
     check("汇总组间分割线", "─" * 20 in body)
     check("汇总LOF独立成组", "💠 LOF溢价提醒 白银LOF 161005" in body)
-    # HTML报告：日周月竖向分割线 + 新增/原有徽标 + 完成(±9)标记 + 头部计数
+    # HTML报告：结构化布局 + 日周月竖向分割线 + 新增/原有分组 + 完成(±9)标记
     path = append_push_report("2026-08-23 10:00", entries,
                               "data/_test_push_report.html")
     check("报告文件已生成", bool(path) and os.path.exists(path))
@@ -318,14 +318,20 @@ def test_push_report_format():
     check("报告原有徽标", 'class="tag tag-keep">⏳ 原有' in doc)
     check("报告完成标记", '<span class="done">完成</span>' in doc)
     check("报告LOF卡无徽标", doc.count("card lv-LOF") == 1 and "tag-new" not in
-          doc.split("card lv-LOF")[1].split("</pre>")[0])
-    check("报告头部新增/原有计数", '🆕新增<span class="n">1</span>' in doc
-          and '⏳原有<span class="k">1</span>' in doc)
-    # 二次写入：旧段去new高亮 + 历史分割线
+          doc.split("card lv-LOF")[1].split("</div>")[0])
+    check("报告头部新增/原有计数", '🆕新增 <b>1</b>' in doc
+          and '⏳原有 <span class="k">1</span>' in doc)
+    check("报告无纯文本pre残留", "card-body" not in doc)
+    check("报告新增/原有分组头", 'class="grp grp-new"' in doc
+          and 'class="grp grp-keep"' in doc)
+    check("报告其他提醒分组头", 'class="grp grp-other"' in doc)
+    # 二次写入：旧段折叠 + 历史分割线
     path = append_push_report("2026-08-23 15:35", entries[:1], path)
     doc2 = open(path, encoding="utf-8").read()
     check("二次写入历史分割线", 'class="hist-div"' in doc2)
-    check("旧段去new高亮", doc2.count('class="scan new"') == 1)
+    check("旧段折叠为details", doc2.count('<details class="scan-fold">') == 1
+          and "10:00" in doc2)
+    check("旧段不再展开平铺", doc2.count('<section class="scan">') == 1)
     os.remove(path)
 
 
@@ -392,8 +398,17 @@ def test_single_strategy_push():
     check("TURN新增/原有徽标", 'class="tag tag-new">🆕 新增' in doc
           and 'class="tag tag-keep">⏳ 原有' in doc)
     check("TURN完成标记", '<span class="done">完成</span>' in doc)
-    check("TURN头部计数", '🆕新增<span class="n">1</span>' in doc
-          and '⏳原有<span class="k">1</span>' in doc)
+    check("TURN头部计数", '🆕新增 <b>1</b>' in doc
+          and '⏳原有 <span class="k">1</span>' in doc)
+    check("TURN新增/原有分组头", 'class="grp grp-new"' in doc
+          and 'class="grp grp-keep"' in doc)
+    check("TURN方向横幅", 'class="dir dir-up"' in doc and 'class="dir dir-down"' in doc)
+    check("TURN结构化字段网格", 'class="card-fields"' in doc
+          and 'class="f-k">含义</div><div class="f-v">' in doc)
+    check("TURN触发日期字段", 'class="f-k">触发</div><div class="f-v">2026-08-23</div>' in doc)
+    check("TURN链接按钮组", 'class="card-links"' in doc
+          and 'class="btn" href="https://gu.qq.com/sh600900"' in doc)
+    check("TURN无pre纯文本残留", "card-body" not in doc)
     os.remove(path)
 
 
