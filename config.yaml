@@ -136,6 +136,6 @@ chart_enabled: true         # mplfinance 可用时渲染K线图
 
 # ---- Web看板 ----
 web:
-  public_url: "https://cruz-pointing-pdf-have.trycloudflare.com"    # 推送卡片附带的看板地址（微信里可点开）；需公网可达。
+  public_url: "https://compliant-genetics-rubber-producing.trycloudflare.com"    # 推送卡片附带的看板地址（微信里可点开）；需公网可达。
                     # 本机部署可用内网穿透获取，如 cpolar/ngrok: "http://xxxx.r6.cpolar.top"
                     # 留空则推送卡不附带链接
