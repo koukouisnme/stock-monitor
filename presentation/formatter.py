@@ -534,9 +534,10 @@ def _summary_line(e: dict) -> str:
     return f"{icon} {e.get('title', '')}{info}"
 
 
-def format_push_summary(entries: list, report_path: str = "") -> tuple:
-    """聚合推送的汇总消息（一次扫描只发一条）：返回(标题, 正文)。
-    九转条目按「新增 / 原有」分组，组间以分割线分隔；完整内容在HTML报告里。"""
+def format_push_summary(entries: list) -> tuple:
+    """聚合推送的汇总消息（一次扫描只发一条textcard卡片）：返回(标题, 描述正文)。
+    九转条目按「新增 / 原有」分组，组间以分割线分隔；
+    完整详情+K线图在卡片链接的报告页里（web:/push_report）。"""
     turn_fresh = [e for e in entries if e.get("fresh") and "turn_day" in e]
     turn_keep = [e for e in entries if not e.get("fresh") and "turn_day" in e]
     others = [e for e in entries if "turn_day" not in e]
@@ -554,8 +555,6 @@ def format_push_summary(entries: list, report_path: str = "") -> tuple:
             lines.append(_SUMMARY_DIV)
         lines.extend(_summary_line(e) for e in others)
     body = "\n".join(lines)
-    if report_path:
-        body += f"\n\n完整详情与K线图：{report_path}"
     return f"收盘扫描报告 · {len(entries)}条", body
 
 

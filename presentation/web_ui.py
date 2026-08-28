@@ -18,7 +18,8 @@ from datetime import datetime
 
 import pandas as pd
 import requests
-from flask import Flask, jsonify, render_template_string, request
+from flask import (Flask, jsonify, render_template_string, request, send_file,
+                  send_from_directory)
 
 from domain.nine_turns import calc_turn_counts
 from domain.resampler import resample
@@ -1883,6 +1884,21 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
     def index():
         return render_template_string(_PAGE)
 
+    @app.get("/push_report")
+    def push_report_page():
+        """推送聚合报告（完整详情+K线图）：textcard卡片点击打开的就是这个页面。"""
+        p = str(cfg.get("push", {}).get("report_html", "push_report.html"))
+        if not os.path.exists(p):
+            return ('<!DOCTYPE html><meta charset="utf-8"><body style="font-family:sans-serif;'
+                    'padding:40px;color:#666;text-align:center"><h3>暂无推送报告</h3>'
+                    '<p>等待收盘扫描生成（每个交易日 15:35 后更新）</p></body>')
+        return send_file(os.path.abspath(p), mimetype="text/html")
+
+    @app.get("/data/charts/<path:fn>")
+    def chart_file(fn):
+        """报告页内嵌K线图（img src 相对于 /push_report 解析为 /data/charts/...）。"""
+        return send_from_directory(os.path.abspath(os.path.join("data", "charts")), fn)
+
     @app.get("/ops")
     def ops():
         return render_template_string(_OPS_PAGE)
@@ -2583,7 +2599,13 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
             body = (f"\n真LOF(16/50) 溢价≥{watch}%或折价≤-{disc}%：\n" + "\n".join(lines)) if lines \
                 else f"\n<font color=\"comment\">当前真LOF无溢价≥{watch}%或折价≤-{disc}%的标的</font>\n本条仅验证推送通道。"
         body += f"\n<font color=\"comment\">TEST · 通道验证 · {now}</font>"
-        ok = pusher.send(title, body, level="TEST", is_alert=True)
+        # textcard卡片：与正式推送同形态（手机点卡片打开报告页）
+        base = str(cfg.get("web", {}).get("public_url", "")).rstrip("/")
+        if base:
+            ok = pusher.send_card(title, body, f"{base}/push_report", "查看详情",
+                                  level="TEST", is_alert=True)
+        else:
+            ok = pusher.send(title, body, level="TEST", is_alert=True)
         err_detail = "；".join(pusher.last_errors) if pusher.last_errors else ""
         msg = "已推送到微信，请查收" if ok else ("推送失败：" + err_detail if err_detail
                                                else "推送失败（通道未配置或网络异常）")

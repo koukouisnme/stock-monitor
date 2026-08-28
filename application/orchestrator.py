@@ -188,14 +188,21 @@ class Orchestrator:
                     "info": f"溢价{st.premium_official:+.2f}% 分位{st.premium_percentile:.0%}"})
                 lof_pushed += 1
 
-        # 聚合推送：本次扫描全部内容写入同一个HTML报告，只发一条汇总消息
+        # 聚合推送：本次扫描全部内容写入同一个HTML报告，只发一条textcard卡片消息
+        # （手机点卡片直接打开报告页：完整详情+K线图；无公网地址时降级markdown文字）
         if push_entries:
             scan_time = datetime.now().strftime("%Y-%m-%d %H:%M")
-            report_path = append_push_report(
+            append_push_report(
                 scan_time, push_entries,
                 self.cfg.get("push", {}).get("report_html", "push_report.html"))
-            title, body = format_push_summary(push_entries, report_path)
-            self.pusher.send(title, body, level=push_summary_level(push_entries))
+            title, body = format_push_summary(push_entries)
+            base = str(self.cfg.get("web", {}).get("public_url", "")).rstrip("/")
+            if base:
+                self.pusher.send_card(title, body, f"{base}/push_report",
+                                      "查看详情",
+                                      level=push_summary_level(push_entries))
+            else:
+                self.pusher.send(title, body, level=push_summary_level(push_entries))
 
         source_note = "合成数据(离线)" if self.sources.using_synthetic else "实盘数据"
         note = f"数据:{source_note}"  # 状态标签不外显（用户要求），仅内部用于动态阈值

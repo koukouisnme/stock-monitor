@@ -7,8 +7,19 @@
 import base64
 import hashlib
 import os
+import re
 
 import requests
+
+
+def card_desc(text: str, limit: int = 480) -> str:
+    """textcard描述：去markdown标记（font/加粗/引用符），截断到企微字节限制内。"""
+    t = re.sub(r"</?font[^>]*>", "", text or "")
+    t = t.replace("**", "").replace("> ", "")
+    raw = t.encode("utf-8")
+    if len(raw) > limit:
+        t = raw[:limit].decode("utf-8", "ignore") + "…（点开查看全部）"
+    return t
 
 
 class ConsoleChannel:
@@ -16,6 +27,12 @@ class ConsoleChannel:
 
     def send(self, title: str, content: str, level: str = "INFO") -> bool:
         print(f"\n{'=' * 46}\n【{level}】{title}\n{'-' * 46}\n{content}\n{'=' * 46}")
+        return True
+
+    def send_card(self, title: str, desc: str, url: str,
+                  btntxt: str = "查看详情", level: str = "INFO") -> bool:
+        print(f"\n{'=' * 46}\n【卡片·{level}】{title}\n{'-' * 46}\n"
+              f"{desc}\n{'-' * 46}\n>>> 点击打开: {url}\n{'=' * 46}")
         return True
 
     def send_image(self, title: str, path: str) -> bool:
@@ -109,6 +126,33 @@ class WecomBotChannel:
             self.last_error = f"{type(e).__name__}: {e}"
             return False
 
+    def send_card(self, title, desc, url, btntxt="查看详情", level="INFO"):
+        """企微机器人图文卡片（news）：手机点卡片直接打开url（报告页含K线图）。
+        注：群机器人不支持textcard（应用消息类型），可点击卡片用news实现。"""
+        self.last_error = ""
+        if not self.webhook or "key=xxx" in self.webhook:
+            self.last_error = "webhook未配置"
+            print(f"[wecom_bot未配置] {title}")
+            return False
+        try:
+            payload = {"msgtype": "news", "news": {"articles": [{
+                "title": f"[{level}] {title}" if level not in ("INFO", "TEST") else str(title),
+                "description": card_desc(desc),
+                "url": url}]}}
+            r = requests.post(self.webhook, json=payload, timeout=10)
+            if r.status_code != 200:
+                self.last_error = f"HTTP {r.status_code}"
+                return False
+            data = r.json()
+            if data.get("errcode") != 0:
+                self.last_error = f"errcode {data.get('errcode')}: {data.get('errmsg')}"
+                print(f"[wecom_bot失败] {self.last_error}")
+                return False
+            return True
+        except Exception as e:
+            self.last_error = f"{type(e).__name__}: {e}"
+            return False
+
     def send_image(self, title: str, path: str) -> bool:
         """企微机器人图片消息：base64 + md5。"""
         if not self.webhook or "key=xxx" in self.webhook:
@@ -161,6 +205,32 @@ class Pusher:
                 else:
                     self.last_errors.append(
                         f"{ch.name}: {getattr(ch, 'last_error', '') or '发送失败'}")
+            except Exception as e:
+                self.last_errors.append(f"{ch.name}: {type(e).__name__}: {e}")
+        return ok
+
+    def send_card(self, title: str, desc: str, url: str, btntxt: str = "查看详情",
+                  level: str = "INFO", is_alert: bool = False) -> bool:
+        """textcard卡片推送：手机点卡片直接打开url（完整详情+K线图）。
+        有卡片能力的通道发textcard；无则降级为文字消息附URL。"""
+        self.last_errors = []
+        if not is_alert:
+            if self.sent_today >= self.daily_limit:
+                print(f"[推送超限] 今日已达{self.daily_limit}条上限，聚合: {title}")
+                self.last_errors = [f"今日已达{self.daily_limit}条上限"]
+                return False
+            self.sent_today += 1
+        ok = False
+        for ch in self.channels:
+            try:
+                if hasattr(ch, "send_card"):
+                    if ch.send_card(title, desc, url, btntxt, level):
+                        ok = True
+                    else:
+                        self.last_errors.append(
+                            f"{ch.name}: {getattr(ch, 'last_error', '') or '发送失败'}")
+                elif ch.send(title, f"{desc}\n详情：{url}", level):
+                    ok = True
             except Exception as e:
                 self.last_errors.append(f"{ch.name}: {type(e).__name__}: {e}")
         return ok

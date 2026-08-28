@@ -224,7 +224,6 @@ def test_push_charts():
     from infrastructure.cache import Cache
     from infrastructure.push import ConsoleChannel, WecomBotChannel, Pusher
     from presentation.chart_renderer import render_kline_chart, render_premium_chart, HAS_MPF
-
     # 溢价历史落库
     tc = Cache("data/test_premium.db")
     st = evaluate_lof("161005", "白银LOF", price=1.60, prev_nav=1.50, asset_chg=0.01,
@@ -412,6 +411,77 @@ def test_single_strategy_push():
     os.remove(path)
 
 
+def test_push_textcard():
+    print("[13] textcard卡片推送（手机可点开报告页）")
+    import yaml
+    from infrastructure.push import Pusher, WecomBotChannel, card_desc
+    # 描述清洗：markdown标记 → 纯文本
+    check("卡片描述去font", card_desc('<font color="warning">高9</font> 完成')
+          == "高9 完成")
+    check("卡片描述去加粗引用", card_desc("**标题**\n> 行") == "标题\n行")
+    check("卡片描述空安全", card_desc("") == "")
+    d = card_desc("测" * 400)
+    check("卡片描述字节截断", len(d.encode("utf-8")) <= 480 + 40
+          and d.endswith("（点开查看全部）"))
+    # 企微通道：未配置webhook → 失败且带原因
+    ch = WecomBotChannel({})
+    check("未配置webhook卡片失败", ch.send_card("t", "d", "https://x") is False
+          and ch.last_error == "webhook未配置")
+    # Pusher卡片：console通道 + 限额语义
+    p = Pusher({"push": {"channels": ["console"], "daily_push_limit": 2}})
+    check("console卡片发送成功", p.send_card("收盘扫描报告 · 1条", "🆕 新增1条",
+                                             "https://x.trycloudflare.com/push_report"))
+    check("卡片计入每日限额", p.sent_today == 1)
+    p.sent_today = 2
+    check("卡片超限额拒绝", p.send_card("t", "d", "https://x") is False
+          and "上限" in p.last_errors[0])
+
+    # Web路由：/push_report（卡片链接目标页）+ /data/charts（K线图）
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "config.yaml"), encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    cfg["data_sources"] = ["synthetic"]
+    cfg["db_path"] = "data/_test_card.db"
+    cfg["push"] = {"channels": ["console"], "daily_push_limit": 5,
+                   "report_html": "data/_selftest_push_report.html"}
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(cfg["db_path"] + suffix):
+            os.remove(cfg["db_path"] + suffix)
+    from infrastructure.cache import Cache
+    from infrastructure.adapters import MultiSourceManager
+    from application.orchestrator import Orchestrator
+    from presentation.web_ui import create_app
+    cache = Cache(cfg["db_path"])
+    orch = Orchestrator(cfg, cache, MultiSourceManager(cfg), Pusher(cfg))
+    app = create_app(cfg, cache, MultiSourceManager(cfg), Pusher(cfg), orch)
+    c = app.test_client()
+    rep = cfg["push"]["report_html"]
+    if os.path.exists(rep):   # test_end_to_end 已生成；否则造一份
+        r = c.get("/push_report")
+        check("报告页可访问(200)", r.status_code == 200)
+        check("报告页含扫描段", b"scan" in r.data)
+    else:
+        from presentation.formatter import append_push_report
+        append_push_report("2026-08-23 15:35", [{"level": "TURN", "title": "t",
+                                                 "text": "x", "fresh": True,
+                                                 "turn_day": 8}], rep)
+        r = c.get("/push_report")
+        check("报告页可访问(200)", r.status_code == 200)
+        check("报告页含扫描段", b"scan" in r.data)
+        os.remove(rep)
+    check("图表缺失返回404", c.get("/data/charts/_no_such_.png").status_code == 404)
+    # 图表存在时可访问
+    os.makedirs(os.path.join("data", "charts"), exist_ok=True)
+    with open(os.path.join("data", "charts", "_card_test.png"), "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+    check("图表文件可访问", c.get("/data/charts/_card_test.png").status_code == 200)
+    os.remove(os.path.join("data", "charts", "_card_test.png"))
+    cache.close()
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(cfg["db_path"] + suffix):
+            os.remove(cfg["db_path"] + suffix)
+
+
 if __name__ == "__main__":
     print("=" * 46)
     print("领域层与应用层自测（全部离线合成数据）")
@@ -419,7 +489,7 @@ if __name__ == "__main__":
     for fn in (test_nine_turns, test_resampler, test_indicators, test_volume,
                test_signal_engine, test_lof, test_ranking, test_url_view,
                test_end_to_end, test_push_charts, test_push_report_format,
-               test_single_strategy_push):
+               test_single_strategy_push, test_push_textcard):
         try:
             fn()
         except Exception as e:
