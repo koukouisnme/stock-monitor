@@ -15,7 +15,6 @@ from domain.resampler import to_monthly, to_weekly
 from domain.signal_engine import fuse
 from domain.volume import volume_profile
 from infrastructure.adapters import is_lof
-from presentation.chart_renderer import render_kline_chart, render_premium_chart
 from presentation.formatter import (append_push_report, format_lof_card,
                                     format_nine_turn_card, format_push_summary,
                                     format_rank_list, format_signal_card,
@@ -140,62 +139,58 @@ class Orchestrator:
                         card = format_nine_turn_card(code, name, turn.count,
                                                      turn_weekly, turn_monthly,
                                                      direction, fresh, sig.trade_date)
-                        image = (render_kline_chart(df, None, code=code, name=name)
-                                 if self.cfg.get("chart_enabled", True) else None)
                         push_entries.append({
                             "level": "TURN",
-                            "title": title, "text": card, "image": image,
+                            "title": title, "text": card, "image": None,
                             "fresh": fresh,
                             "turn_day": turn.count, "turn_week": turn_weekly,
                             "turn_month": turn_monthly,
                             "info": f"{'🆕新增' if fresh else '⏳原有'} 九转 "
                                     f"{format_turn_brief(turn.count, turn_weekly, turn_monthly)}"})
-                        self.cache.record_push(code, direction, trade_date, "TURN")
+                        self.cache.record_push(code, direction, trade_date, "TURN",
+                                               period="day")
                         self.cache.add_tracking(sig)
                         signals_pushed += 1
                     else:
                         card = format_signal_card(sig, vp, self.market_state,
                                                   hist_stats.get(f"{sig.level}-{sig.action}"),
                                                   turn_week=turn_weekly, turn_month=turn_monthly)
-                        image = render_kline_chart(df, sig) if self.cfg.get("chart_enabled", True) else None
                         push_entries.append({
                             "level": sig.level,
                             "title": f"{sig.level}级{'买入' if sig.action == 'buy' else '卖出'}信号 {name} {code}",
-                            "text": card, "image": image, "fresh": fresh,
+                            "text": card, "image": None, "fresh": fresh,
                             "turn_day": sig.turn, "turn_week": turn_weekly,
                             "turn_month": turn_monthly,
                             "info": f"{'🆕新增' if fresh else '⏳原有'} 九转 "
                                     f"{format_turn_brief(sig.turn, turn_weekly, turn_monthly)}"
                                     f"｜得分{sig.score}"})
-                        self.cache.record_push(code, direction, trade_date, sig.level)
+                        self.cache.record_push(code, direction, trade_date, sig.level,
+                                               period="day")
                         self.cache.add_tracking(sig)
                         signals_pushed += 1
             except Exception as e:  # 单标的失败不影响整体
                 errors += 1
                 print(f"  [错误] {code}: {e}")
 
-        # LOF 溢价提醒 → 同样聚合进HTML报告（文字卡 + 溢价走势图）
+        # LOF 溢价提醒 → 同样聚合进HTML报告（文字卡）
         lof_pushed = 0
         for st in lof_states:
             if st.note:
-                img = None
-                if self.cfg.get("chart_enabled", True) and df_cache.get(st.code) is not None:
-                    img = render_premium_chart(df_cache.get(st.code), st)
                 push_entries.append({
                     "level": "LOF",
                     "title": f"LOF溢价提醒 {st.name} {st.code}",
-                    "text": format_lof_card(st), "image": img,
+                    "text": format_lof_card(st), "image": None,
                     "info": f"溢价{st.premium_official:+.2f}% 分位{st.premium_percentile:.0%}"})
                 lof_pushed += 1
 
-        # 聚合推送：本次扫描全部内容写入同一个HTML报告，只发一条textcard卡片消息
-        # （手机点卡片直接打开报告页：完整详情+K线图；无公网地址时降级markdown文字）
+        # 聚合推送：本次扫描全部内容写入同一个HTML报告，只发一条图文卡片消息
+        # （手机点卡片直接打开报告页；无公网地址时降级markdown文字）
         if push_entries:
             scan_time = datetime.now().strftime("%Y-%m-%d %H:%M")
             append_push_report(
                 scan_time, push_entries,
                 self.cfg.get("push", {}).get("report_html", "push_report.html"))
-            title, body = format_push_summary(push_entries)
+            title, body = format_push_summary(push_entries, scan_time)
             base = str(self.cfg.get("web", {}).get("public_url", "")).rstrip("/")
             if base:
                 self.pusher.send_card(title, body, f"{base}/push_report",
@@ -215,6 +210,14 @@ class Orchestrator:
                              level="ALERT", is_alert=True)
         # 更新历史跟踪收益
         self._update_tracking()
+        # 个股画像刷新（ROE/行业板块/板块日周成交额，东财数据，12h内不重复）
+        try:
+            from infrastructure.enrich import enrich_watchlist
+            n_meta = enrich_watchlist(self.cfg, self.cache)
+            if n_meta > 0:
+                print(f"  [画像] 已刷新{n_meta}只（ROE/板块/成交额）")
+        except Exception as e:
+            print(f"  [画像刷新失败] {e}")
         return {"total": len(watchlist), "signals": signals_pushed + lof_pushed,
                 "errors": errors, "market_state": self.market_state,
                 "snapshot_rows": snapshot_rows, "lof_states": lof_states,

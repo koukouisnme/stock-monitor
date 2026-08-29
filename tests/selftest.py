@@ -173,14 +173,14 @@ def test_ranking():
 def test_url_view():
     print("[8] 网址查看")
     from presentation.formatter import stock_url, format_lof_card
-    check("沪股链接正确", stock_url("600519") == "https://gu.qq.com/sh600519")
-    check("深股链接正确", stock_url("300059") == "https://gu.qq.com/sz300059")
-    check("LOF链接正确", stock_url("161005") == "https://gu.qq.com/sz161005")
+    check("沪股链接正确", stock_url("600519") == "https://quote.eastmoney.com/sh600519.html")
+    check("深股链接正确", stock_url("300059") == "https://quote.eastmoney.com/sz300059.html")
+    check("LOF链接正确", stock_url("161005") == "https://quote.eastmoney.com/sz161005.html")
     st = evaluate_lof("161005", "白银LOF", price=1.60, prev_nav=1.50, asset_chg=0.01,
                       position=0.93, premium_history=[1.0] * 50 + [3.0] * 10,
                       share_chg_pct=6.0, cfg={"premium_watch": 3.0, "share_surge_pct": 5.0})
     card = format_lof_card(st)
-    check("LOF卡片含查看链接", "https://gu.qq.com/sz161005" in card)
+    check("LOF卡片含查看链接", "https://quote.eastmoney.com/sz161005.html" in card)
 
 
 def test_end_to_end():
@@ -299,20 +299,23 @@ def test_push_report_format():
     # 紧凑九转串：日周月以分割线样式分隔
     check("九转串分割线分隔", format_turn_brief(-9, -6, 2) == "日-9 ┃ 周-6 ┃ 月+2",
           format_turn_brief(-9, -6, 2))
-    # 汇总消息：新增/原有分组，组间分割线
-    title, body = format_push_summary(entries)
+    # 汇总消息（简约版）：顶部时间 + 顶部/底部分组 + 组间分割线 + 名称无代码
+    title, body = format_push_summary(entries, "2026-08-23 15:35")
     check("汇总标题计数", title == "收盘扫描报告 · 3条", title)
-    check("汇总分组新增", "🆕 新增九转 1条" in body)
-    check("汇总分组原有", "⏳ 原有九转 1条（维持）" in body)
+    check("汇总顶部时间", "⏰ 2026-08-23 15:35" in body)
+    check("汇总顶部预警组", "▲ 顶部预警 1只" in body)
+    check("汇总底部预警组", "▼ 底部预警 1只" in body)
     check("汇总组间分割线", "─" * 20 in body)
-    check("汇总LOF独立成组", "💠 LOF溢价提醒 白银LOF 161005" in body)
+    check("汇总名称无代码", "东方财富" in body and "300059" not in body
+          and "紫金矿业" in body and "601899" not in body)
+    check("汇总LOF独立成组", "白银LOF" in body and "161005" not in body)
     # HTML报告：结构化布局 + 日周月竖向分割线 + 新增/原有分组 + 完成(±9)标记
     path = append_push_report("2026-08-23 10:00", entries,
                               "data/_test_push_report.html")
     check("报告文件已生成", bool(path) and os.path.exists(path))
     doc = open(path, encoding="utf-8").read()
-    check("报告日周月分割线", doc.count('class="turn-sep"') == 4,
-          f"seps={doc.count('class=\"turn-sep\"')}")
+    n_sep = doc.count('class="turn-sep"')
+    check("报告日周月分割线", n_sep == 4, f"seps={n_sep}")
     check("报告新增徽标", 'class="tag tag-new">🆕 新增' in doc)
     check("报告原有徽标", 'class="tag tag-keep">⏳ 原有' in doc)
     check("报告完成标记", '<span class="done">完成</span>' in doc)
@@ -338,26 +341,25 @@ def test_single_strategy_push():
     print("[12] 单一策略·神奇九转推送")
     from presentation.formatter import (append_push_report, format_nine_turn_card,
                                         format_push_summary, push_summary_level)
-    # 顶部预警卡（新增，日线+8计数中）
+    # 顶部预警卡（新增，日线+8计数中）：简约版=名称无代码、无含义/触发时间、东财链接
     card_up = format_nine_turn_card("600900", "长江电力", 8, 5, -2, "up",
                                     fresh=True, trade_date="2026-08-23")
-    check("九转卡顶部预警标题", "🌀 神奇九转 · 顶部预警 | 长江电力 600900" in card_up)
-    check("九转卡新增状态行", "🆕 新增" in card_up)
-    check("九转卡日周月计数", "日线：+8（计数中）" in card_up
-          and "周线：+5（计数中）" in card_up and "月线：-2（计数中）" in card_up)
-    check("九转卡顶部含义", "警惕趋势反转向下" in card_up)
-    check("九转卡查看链接", "https://gu.qq.com/sh600900" in card_up)
-    check("九转卡触发日期", "触发：2026-08-23" in card_up)
+    check("九转卡顶部预警标题", "🌀 神奇九转 · 顶部预警 | 长江电力" in card_up)
+    check("九转卡标题无代码", "600900" not in card_up.splitlines()[0])
+    check("九转卡新增状态行", "• 状态：🆕 新增" in card_up)
+    check("九转卡日周月计数", "• 九转：日+8 ┃ 周+5 ┃ 月-2" in card_up)
+    check("九转卡无顶部含义", "警惕趋势反转向下" not in card_up)
+    check("九转卡无触发时间", "触发" not in card_up)
+    check("九转卡东财行情链接", "https://quote.eastmoney.com/sh600900.html" in card_up)
     check("九转卡不含信号分级", "买入" not in card_up and "得分" not in card_up
           and "止损" not in card_up)
     # 底部预警卡（原有维持，日线-9完成）
     card_dn = format_nine_turn_card("000333", "美的集团", -9, None, 0, "down",
                                     fresh=False, trade_date="2026-08-23")
-    check("九转卡底部预警标题", "底部预警 | 美的集团 000333" in card_dn)
+    check("九转卡底部预警标题", "底部预警 | 美的集团" in card_dn)
     check("九转卡原有状态行", "⏳ 原有（维持）" in card_dn)
-    check("九转卡完成标记", "日线：-9（完成）" in card_dn)
-    check("九转卡周线无/月线0", "周线：无" in card_dn and "月线：0" in card_dn)
-    check("九转卡底部含义", "关注趋势反转向上" in card_dn)
+    check("九转卡完成计数串", "日-9 ┃ 周无 ┃ 月0" in card_dn)
+    check("九转卡无底部含义", "关注趋势反转向上" not in card_dn)
 
     # 门槛语义矩阵：单一模式只看|计数|≥push_from；常规模式要求级别+动作+计数
     push_levels = {"S", "A"}
@@ -385,15 +387,19 @@ def test_single_strategy_push():
     ]
     title, body = format_push_summary(entries)
     check("单一策略汇总计数", title == "收盘扫描报告 · 2条", title)
-    check("单一策略汇总分组新增", "🆕 新增九转 1条" in body)
-    check("单一策略汇总分组原有", "⏳ 原有九转 1条（维持）" in body)
-    check("单一策略汇总图标", "🌀 九转策略 · 顶部预警 长江电力 600900" in body)
+    check("单一策略汇总顶部组", "▲ 顶部预警 1只" in body)
+    check("单一策略汇总底部组", "▼ 底部预警 1只" in body)
+    check("单一策略汇总组间分割线", "─" * 20 in body)
+    check("单一策略汇总名称无代码", "长江电力" in body and "600900" not in body
+          and "美的集团" in body and "000333" not in body)
+    check("单一策略汇总条目样式", "🌀🆕 长江电力 日+8 ┃ 周+5 ┃ 月-2" in body
+          and "🌀⏳ 美的集团 日-9 ┃ 周无 ┃ 月0" in body)
     check("单一策略汇总级别TURN", push_summary_level(entries) == "TURN")
     path = append_push_report("2026-08-23 15:35", entries, "data/_test_turn_report.html")
     doc = open(path, encoding="utf-8").read()
     check("TURN卡片青色样式", doc.count("card lv-TURN") == 2)
-    check("TURN日周月分割线", doc.count('class="turn-sep"') == 4,
-          f"seps={doc.count('class=\"turn-sep\"')}")
+    n_sep = doc.count('class="turn-sep"')
+    check("TURN日周月分割线", n_sep == 4, f"seps={n_sep}")
     check("TURN新增/原有徽标", 'class="tag tag-new">🆕 新增' in doc
           and 'class="tag tag-keep">⏳ 原有' in doc)
     check("TURN完成标记", '<span class="done">完成</span>' in doc)
@@ -403,10 +409,11 @@ def test_single_strategy_push():
           and 'class="grp grp-keep"' in doc)
     check("TURN方向横幅", 'class="dir dir-up"' in doc and 'class="dir dir-down"' in doc)
     check("TURN结构化字段网格", 'class="card-fields"' in doc
-          and 'class="f-k">含义</div><div class="f-v">' in doc)
-    check("TURN触发日期字段", 'class="f-k">触发</div><div class="f-v">2026-08-23</div>' in doc)
+          and 'class="f-k">九转</div>' in doc)
+    check("TURN报告无含义/触发字段", ">含义</div>" not in doc
+          and ">触发</div>" not in doc)
     check("TURN链接按钮组", 'class="card-links"' in doc
-          and 'class="btn" href="https://gu.qq.com/sh600900"' in doc)
+          and 'href="https://quote.eastmoney.com/sh600900.html"' in doc)
     check("TURN无pre纯文本残留", "card-body" not in doc)
     os.remove(path)
 

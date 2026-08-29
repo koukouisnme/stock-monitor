@@ -24,21 +24,15 @@ watchlist:
   - {code: "300059", name: "东方财富"}
   - {code: "161128", name: "标普信息科技LOF"}
   - {code: "165520", name: "有色LOF"}
-  - {code: "588290", name: "科创芯片ETF华安"}
-  - {code: "300308", name: "中际旭创"}
   - {code: "603986", name: "兆易创新"}
   - {code: "513060", name: "恒生医疗ETF博时"}
   - {code: "000963", name: "华东医药"}
   - {code: "513050", name: "中概互联网ETF易方达"}
-  - {code: "512010", name: "医药ETF易方达"}
   - {code: "159852", name: "软件ETF嘉实"}
-  - {code: "159636", name: "港股通科技30ETF工银"}
-  - {code: "159259", name: "成长ETF易方达"}
   - {code: "515230", name: "软件ETF国泰"}
   - {code: "002517", name: "恺英网络"}
   - {code: "300759", name: "康龙化成"}
   - {code: "160133", name: "南方天元LOF"}
-  - {code: "589020", name: "科创半导体设备ETF鹏华"}
   - {code: "162703", name: "广发小盘LOF"}
   - {code: "163412", name: "兴全轻资产LOF"}
   - {code: "165313", name: "建信优势LOF"}
@@ -49,7 +43,6 @@ watchlist:
   - {code: "160637", name: "创业板L"}
   - {code: "161725", name: "白酒基金"}
   - {code: "161631", name: "人工智能"}
-  - {code: "513700", name: "港股通医药ETF鹏华"}
   - {code: "301308", name: "江波龙"}
   - {code: "601166", name: "兴业银行"}
 index_benchmark: "sh000300"      # 市场状态基准：沪深300
@@ -129,6 +122,6 @@ chart_enabled: true         # mplfinance 可用时渲染K线图
 
 # ---- Web看板 ----
 web:
-  public_url: "https://lower-connection-minerals-gains.trycloudflare.com"    # 推送卡片附带的看板地址（微信里可点开）；需公网可达。
+  public_url: "https://yorkshire-configuration-ballot-ict.trycloudflare.com"    # 推送卡片附带的看板地址（微信里可点开）；需公网可达。
                     # 本机部署可用内网穿透获取，如 cpolar/ngrok: "http://xxxx.r6.cpolar.top"
                     # 留空则推送卡不附带链接

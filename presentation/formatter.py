@@ -18,10 +18,10 @@ _NAV_SRC_CN = {"iopv": "IOPV实时", "estimate": "双口径估算", "official": 
 
 
 def stock_url(code: str) -> str:
-    """行情查看链接（腾讯）：6/5开头=沪市，其余=深市，与数据源符号规则一致。"""
+    """行情查看链接（东方财富）：6/5开头=沪市，其余=深市。"""
     code = str(code)
     symbol = f"sh{code}" if code.startswith(("6", "5")) else f"sz{code}"
-    return f"https://gu.qq.com/{symbol}"
+    return f"https://quote.eastmoney.com/{symbol}.html"
 
 
 # ---- Web看板深链（配置 web.public_url 后推送卡附带，微信点开直达对应标的） ----
@@ -62,36 +62,24 @@ def format_turn_brief(day, week=None, month=None) -> str:
 
 
 # 单一策略·神奇九转：方向含义（正计数=上涨结构=顶部预警；负计数=下跌结构=底部预警）
-_TURN_MEANING = {"up": "高位九转计数：上涨结构接近完成，警惕趋势反转向下",
-                 "down": "低位九转计数：下跌结构接近完成，关注趋势反转向上"}
+# （推送卡已简约化：含义不再逐条展示，仅在报告页呈现）
 
 
 def format_nine_turn_card(code: str, name: str, turn_day, turn_week, turn_month,
                           direction: str, fresh: bool = True,
                           trade_date: str = "") -> str:
-    """单一策略·神奇九转卡片：只呈现九转结构本身（日/周/月计数+方向含义），
-    不含信号分级/买卖动作。fresh=新增（首次出现或计数推进），否则原有维持。"""
+    """单一策略·神奇九转卡片（简约版）：名称无代码、无含义/触发时间（汇总消息顶部统一给）、
+    无K线图（详情在卡片链接的报告页）。fresh=新增（首次出现或计数推进），否则原有维持。"""
     head = "顶部预警" if direction == "up" else "底部预警"
     lines = [
-        "━" * 22,
-        f"🌀 神奇九转 · {head} | {name} {code}",
-        "━" * 22,
+        f"🌀 神奇九转 · {head} | {name}",
         f"• 状态：{'🆕 新增' if fresh else '⏳ 原有（维持）'}",
-        "• 九转结构：",
-        _turn_line("日线", turn_day),
-        "  " + "─" * 10,
-        _turn_line("周线", turn_week),
-        "  " + "─" * 10,
-        _turn_line("月线", turn_month),
-        f"• 含义：{_TURN_MEANING.get(direction, '')}",
-        "─" * 22,
+        f"• 九转：{format_turn_brief(turn_day, turn_week, turn_month)}",
         f"• 行情查看：{stock_url(code)}",
     ]
     wl = web_link(code, "day")
     if wl:
         lines.append(f"• 看板详情：{wl}")
-    if trade_date:
-        lines.append(f"触发：{trade_date}")
     return "\n".join(lines)
 
 
@@ -102,14 +90,9 @@ def format_signal_card(sig: SignalResult, vp: VolumeProfile, market_state: str,
     turn_week / turn_month：周线、月线九转计数（日周月多周期展示）。"""
     lines = [
         "━" * 22,
-        f"{_LEVEL_ICON.get(sig.level, '')} {sig.level}级{_ACTION_CN.get(sig.action)}信号 | {sig.name} {sig.code}",
+        f"{_LEVEL_ICON.get(sig.level, '')} {sig.level}级{_ACTION_CN.get(sig.action)}信号 | {sig.name}",
         "━" * 22,
-        "• 九转结构：",
-        _turn_line("日线", sig.turn),
-        "  " + "─" * 10,
-        _turn_line("周线", turn_week),
-        "  " + "─" * 10,
-        _turn_line("月线", turn_month),
+        f"• 九转：{format_turn_brief(sig.turn, turn_week, turn_month)}",
         f"• 量能：量比 {vp.vol_ratio:.1f} / 分位 {vp.volume_percentile:.0%}"
         + (f" / {_SURGE_CN.get(vp.surge_type, vp.surge_type)}" if vp.surge_type else ""),
         f"• 综合得分：{sig.score}",
@@ -130,14 +113,14 @@ def format_signal_card(sig: SignalResult, vp: VolumeProfile, market_state: str,
     wl = web_link(sig.code, sig.period if sig.period in ("day", "week", "month") else "day")
     if wl:
         lines.append(f"• 看板详情：{wl}")
-    lines.append(f"触发：{sig.trade_date} ｜ 回复 1详情 2跟踪 3忽略")
+    lines.append("回复 1详情 2跟踪 3忽略")
     return "\n".join(lines)
 
 
 def format_lof_card(st: LOFState) -> str:
     lines = [
         "━" * 22,
-        f"💠 LOF溢价监控 | {st.name} {st.code}",
+        f"💠 LOF溢价监控 | {st.name}",
         "━" * 22,
         f"• 场内价：{st.price:.3f}",
         f"• 估算净值：{st.nav_official_est:.4f}（口径：{_NAV_SRC_CN.get(st.nav_source, st.nav_source)}）",
@@ -528,32 +511,52 @@ _PUSH_LEVEL_ICON = {"S": "🔴", "A": "🟠", "B": "🟡", "LOF": "💠", "TURN"
 _SUMMARY_DIV = "─" * 20
 
 
-def _summary_line(e: dict) -> str:
+_TITLE_PFX = ("九转策略 · 顶部预警 ", "九转策略 · 底部预警 ",
+              "S级买入信号 ", "S级卖出信号 ", "A级买入信号 ", "A级卖出信号 ",
+              "B级买入信号 ", "B级卖出信号 ", "LOF溢价提醒 ")
+
+
+def _summary_name(e: dict) -> str:
+    """汇总条目（简约）：级别图标 + 名称（无代码、无级别/策略前缀，方向由分组头呈现）+ 九转日周月。"""
     icon = _PUSH_LEVEL_ICON.get(str(e.get("level", "INFO")), "ℹ️")
-    info = f"（{e['info']}）" if e.get("info") else ""
-    return f"{icon} {e.get('title', '')}{info}"
+    title = str(e.get("title", ""))
+    # 标题尾部形如" 名称 600900"：去掉末尾代码
+    parts = title.rsplit(" ", 1)
+    name = parts[0] if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 6 else title
+    for pfx in _TITLE_PFX:  # 再去掉级别/策略前缀，只留名称
+        if name.startswith(pfx):
+            name = name[len(pfx):]
+            break
+    fresh = "🆕" if e.get("fresh") else "⏳"
+    if "turn_day" in e:
+        return f"{icon}{fresh} {name} {format_turn_brief(e.get('turn_day'), e.get('turn_week'), e.get('turn_month'))}"
+    return f"{icon} {name}"
 
 
-def format_push_summary(entries: list) -> tuple:
-    """聚合推送的汇总消息（一次扫描只发一条textcard卡片）：返回(标题, 描述正文)。
-    九转条目按「新增 / 原有」分组，组间以分割线分隔；
+def format_push_summary(entries: list, scan_time: str = "") -> tuple:
+    """聚合推送的汇总消息（一次扫描只发一条图文卡片）：返回(标题, 描述正文)。
+    简约版：顶部给扫描时间；九转按「顶部预警/底部预警」分组，组间分割线；
+    每条=图标+新增/原有+名称（无代码）+九转日周月；
     完整详情+K线图在卡片链接的报告页里（web:/push_report）。"""
-    turn_fresh = [e for e in entries if e.get("fresh") and "turn_day" in e]
-    turn_keep = [e for e in entries if not e.get("fresh") and "turn_day" in e]
+    ups = [e for e in entries if "turn_day" in e and (e.get("turn_day") or 0) > 0]
+    downs = [e for e in entries if "turn_day" in e and (e.get("turn_day") or 0) < 0]
     others = [e for e in entries if "turn_day" not in e]
     lines = []
-    if turn_fresh:
-        lines.append(f"🆕 新增九转 {len(turn_fresh)}条")
-        lines.extend(_summary_line(e) for e in turn_fresh)
-    if turn_keep:
+    if scan_time:
+        lines.append(f"⏰ {scan_time}")
+        lines.append("━" * 18)
+    if ups:
+        lines.append(f"▲ 顶部预警 {len(ups)}只")
+        lines.extend(_summary_name(e) for e in ups)
+    if downs:
         if lines:
             lines.append(_SUMMARY_DIV)
-        lines.append(f"⏳ 原有九转 {len(turn_keep)}条（维持）")
-        lines.extend(_summary_line(e) for e in turn_keep)
+        lines.append(f"▼ 底部预警 {len(downs)}只")
+        lines.extend(_summary_name(e) for e in downs)
     if others:
         if lines:
             lines.append(_SUMMARY_DIV)
-        lines.extend(_summary_line(e) for e in others)
+        lines.extend(_summary_name(e) for e in others)
     body = "\n".join(lines)
     return f"收盘扫描报告 · {len(entries)}条", body
 

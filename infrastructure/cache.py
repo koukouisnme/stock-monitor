@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS stock_state (
   last_update TEXT, kline_hash TEXT);
 CREATE TABLE IF NOT EXISTS push_history (
   code TEXT NOT NULL, direction TEXT NOT NULL, trade_date TEXT NOT NULL,
-  level TEXT, push_time TEXT,
+  level TEXT, push_time TEXT, period TEXT DEFAULT 'day',
   PRIMARY KEY (code, direction, trade_date));
 CREATE TABLE IF NOT EXISTS signal_tracking (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,6 +46,9 @@ CREATE TABLE IF NOT EXISTS mk_list (
 CREATE TABLE IF NOT EXISTS mk_sim (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   payload TEXT NOT NULL, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS stock_meta (
+  code TEXT PRIMARY KEY, industry TEXT, roe REAL,
+  board_code TEXT, board_day_amt REAL, board_week_amt REAL, updated_at TEXT);
 CREATE INDEX IF NOT EXISTS idx_snap_sort ON indicator_snapshot(period, trade_date);
 """
 
@@ -58,6 +61,12 @@ class Cache:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(_SCHEMA)
         self.conn.commit()
+        # 老库迁移：push_history 补 period 列（新版建表已含）
+        try:
+            self.conn.execute("ALTER TABLE push_history ADD COLUMN period TEXT DEFAULT 'day'")
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            pass
 
     # ---------- K线 ----------
     def upsert_klines(self, code: str, df: pd.DataFrame):
@@ -158,7 +167,7 @@ class Cache:
                               "vol_ratio, vol_ratio_period, amt_ratio, amount, premium, "
                               "pct_chg, surge_type, close, snapshot_time "
                               "FROM indicator_snapshot WHERE code=? ORDER BY period"),
-            "push_history": rows("SELECT direction, trade_date, level, push_time "
+            "push_history": rows("SELECT direction, trade_date, level, push_time, period "
                                  "FROM push_history WHERE code=? ORDER BY trade_date DESC LIMIT 20"),
             "signal_tracking": rows("SELECT level, action, signal_date, ref_close, close_5d, "
                                     "close_10d, close_20d, ret_5d, ret_10d, ret_20d "
@@ -193,12 +202,33 @@ class Cache:
         return row[0] if row else None
 
     # ---------- 推送记录 ----------
-    def record_push(self, code: str, direction: str, trade_date: str, level: str):
+    def record_push(self, code: str, direction: str, trade_date: str, level: str,
+                    period: str = "day"):
+        """period：触发周期 day/week/month（推送历史方向展示 日高9/周高9/月高9）。"""
         with self._lock:
             self.conn.execute(
-                "INSERT OR REPLACE INTO push_history VALUES (?,?,?,?,?)",
-                (code, direction, trade_date, level, datetime.now().isoformat(timespec="seconds")))
+                "INSERT OR REPLACE INTO push_history VALUES (?,?,?,?,?,?)",
+                (code, direction, trade_date, level,
+                 datetime.now().isoformat(timespec="seconds"), period))
             self.conn.commit()
+
+    # ---------- 个股画像（ROE/行业板块/板块成交额，东财数据） ----------
+    def upsert_stock_meta(self, rows: list):
+        """rows = [{code, industry, roe, board_code, board_day_amt, board_week_amt}]"""
+        now = datetime.now().isoformat(timespec="seconds")
+        with self._lock:
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO stock_meta VALUES (?,?,?,?,?,?,?)",
+                [(r.get("code"), r.get("industry"), r.get("roe"), r.get("board_code"),
+                  r.get("board_day_amt"), r.get("board_week_amt"), now) for r in rows])
+            self.conn.commit()
+
+    def stock_meta_map(self) -> dict:
+        rows = self.conn.execute(
+            "SELECT code, industry, roe, board_code, board_day_amt, board_week_amt "
+            "FROM stock_meta").fetchall()
+        return {r[0]: {"industry": r[1], "roe": r[2], "board_code": r[3],
+                       "board_day_amt": r[4], "board_week_amt": r[5]} for r in rows}
 
     def push_count_today(self) -> int:
         cur = self.conn.execute(

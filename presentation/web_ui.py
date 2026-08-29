@@ -562,7 +562,7 @@ _PAGE = """
   <div class="pill" style="margin-bottom:6px">入选依据：各行业高流动性龙头股 + 宽基/行业ETF + 跨境商品LOF（多资产覆盖，便于同时验证九转信号与溢价监控；可自行在 config.yaml 替换）</div>
   <table id="tbl"><thead><tr>
     <th>名称-代码</th><th id="thBasis">依据---量比</th><th>收盘</th><th>涨跌</th><th>量比</th><th>成交额</th>
-    <th>九转</th><th>溢价</th><th>放量</th><th>行情</th>
+    <th>九转</th><th>溢价</th><th>放量</th><th>ROE</th><th>板块</th><th>板块日额</th><th>板块周额</th><th>行情</th>
   </tr></thead><tbody></tbody></table>
 </div>
 
@@ -698,10 +698,12 @@ async function loadAll() {
 
   const gb = document.querySelector('#sigTbl tbody'); gb.innerHTML = '';
   // 方向以九转结构表述：高9=上涨结构完成(卖出信号/绿)，低9=下跌结构完成(买入信号/红)
+  // 前缀标注触发周期（日/周/月）
+  const PERIOD_CN2 = {day:'日', week:'周', month:'月'};
   (sigs.signals || []).forEach(x => gb.insertAdjacentHTML('beforeend',
     `<tr><td class="dim">${x.push_time}</td><td>${x.name||''} ${x.code}</td>
      <td><span class="lv ${x.level}">${x.level}</span></td>
-     <td class="${x.direction=='up'?'dn':'up'}" style="font-weight:600">${x.direction=='up'?'高9':'低9'}</td></tr>`));
+     <td class="${x.direction=='up'?'dn':'up'}" style="font-weight:600">${(PERIOD_CN2[x.period]||'日')}${x.direction=='up'?'高9':'低9'}</td></tr>`));
 
   reloadRank();
   openFromQuery();   // 深链定位：/?code=600519&period=week 自动打开该标的
@@ -773,6 +775,7 @@ function renderRankRows() {
   document.getElementById('rtLof').textContent = `LOF(${cnt.lof})`;
   rows.forEach(s => {
     const tc = s.turn_count || 0;
+    const roeCls = s.roe != null ? (s.roe >= 15 ? 'up' : (s.roe <= 5 ? 'dn' : '')) : '';
     tb.insertAdjacentHTML('beforeend', `<tr class="row ${s.code===curCode?'sel':''}" data-code="${s.code}" data-name="${s.name||''}" onclick="pick(this)">
       <td style="white-space:nowrap"><span class="delpool" title="移出自选池"
         onclick="event.stopPropagation();poolDel('${s.code}','${(s.name||'').replace(/'/g,'')}')">−</span>${(s.name || '')}-${s.code}</td>
@@ -783,7 +786,11 @@ function renderRankRows() {
       <td class="${cls(tc)}">${tc ? (tc>0?'高':'低')+Math.abs(tc)+(s.turn_complete?'✓':'') : '-'}</td>
       <td class="${cls(s.premium)}">${s.premium!=null?sgn(s.premium)+'%':'-'}</td>
       <td>${s.surge_type || '-'}</td>
-      <td><a href="https://gu.qq.com/${mktSym(s.code)}" target="_blank">查看</a></td>
+      <td class="${roeCls}" style="font-weight:600">${s.roe != null ? s.roe.toFixed(1)+'%' : '-'}</td>
+      <td style="white-space:nowrap">${s.industry || '-'}</td>
+      <td>${fmtAmt(s.board_day_amt)}</td>
+      <td>${fmtAmt(s.board_week_amt)}</td>
+      <td><a href="https://quote.eastmoney.com/${mktSym(s.code)}.html" target="_blank">查看</a></td>
     </tr>`);
   });
 }
@@ -1356,7 +1363,7 @@ async function dbQuery() {
         ['premium','溢价%'],['pct_chg','涨跌%'],['close','收盘'],['snapshot_time','快照时间']],
         rp.snapshots.map(s => ({...s, period: PERIOD_CN[s.period] || s.period}))) +
       dbTbl('推送历史（近20条）', [['direction','方向'],['trade_date','交易日'],['level','级别'],['push_time','推送时间']],
-        rp.push_history.map(p => ({...p, direction: p.direction === 'up' ? '高9' : '低9'}))) +
+        rp.push_history.map(p => ({...p, direction: (p.period === 'week' ? '周' : p.period === 'month' ? '月' : '日') + (p.direction === 'up' ? '高9' : '低9')}))) +
       dbTbl('信号跟踪（近20条）', [['level','级别'],['action','动作'],['signal_date','信号日'],['ref_close','基准收'],
         ['close_5d','5日收'],['close_10d','10日收'],['close_20d','20日收'],
         ['ret_5d','5日%'],['ret_10d','10日%'],['ret_20d','20日%']], rp.signal_tracking) +
@@ -1940,6 +1947,14 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
         # 附带周/月九转最新计数（前端 周八/周九/月八/月九 筛选用，与所选排序周期无关）
         tw = {str(r.get("code")): r.get("turn_count") for r in cache.latest_snapshots("week")}
         tm = {str(r.get("code")): r.get("turn_count") for r in cache.latest_snapshots("month")}
+        # 个股画像（ROE/行业板块/板块日周成交额）：无数据时后台懒加载刷新一次
+        try:
+            from infrastructure.enrich import enrich_watchlist_async
+            if not cache.stock_meta_map():
+                enrich_watchlist_async(cfg, cache)
+            meta = cache.stock_meta_map()
+        except Exception:
+            meta = {}
         out = []
         for r in rows:
             r = {k: _clean(v) for k, v in r.items()}
@@ -1948,6 +1963,11 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
                 r["name"] = pool_name[code]
             r["turn_week"] = _clean(tw.get(code))
             r["turn_month"] = _clean(tm.get(code))
+            m = meta.get(code) or {}
+            r["roe"] = _clean(m.get("roe"))
+            r["industry"] = _clean(m.get("industry"))
+            r["board_day_amt"] = _clean(m.get("board_day_amt"))
+            r["board_week_amt"] = _clean(m.get("board_week_amt"))
             out.append(r)
         return jsonify(rows=out)
 
@@ -2153,13 +2173,15 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
     @app.get("/api/signals")
     def signals():
         df = cache.conn.execute(
-            "SELECT p.push_time, p.code, p.direction, p.level, s.name FROM push_history p "
+            "SELECT p.push_time, p.code, p.direction, p.level, s.name, p.period "
+            "FROM push_history p "
             "LEFT JOIN (SELECT code, MAX(trade_date) d, name FROM indicator_snapshot "
             "           WHERE period='day' GROUP BY code) s ON s.code = p.code "
             "ORDER BY p.push_time DESC LIMIT 20").fetchall()
         pool_name = {str(i["code"]): str(i.get("name", "")) for i in cfg.get("watchlist", [])}
         return jsonify(signals=[dict(push_time=r[0], code=r[1], direction=r[2], level=r[3],
-                                     name=pool_name.get(str(r[1]), r[4] or "")) for r in df])
+                                     name=pool_name.get(str(r[1]), r[4] or ""),
+                                     period=r[5] or "day") for r in df])
 
     # ---------- 九转回测 ----------
     @app.get("/api/backtest/<code>")
