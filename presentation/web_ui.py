@@ -413,6 +413,102 @@ def _mk_run_job(sources, cache, codes_names: list, params: dict):
     _mk_sim_persist(cache, job)       # 完成落库：下次进站直接展示
 
 _PERIODS = {"day": "日线", "week": "周线", "month": "月线"}
+
+# ---------- 全市场个股画像：ROE / 行业板块（东财clist批量，进程缓存12h） ----------
+_MK_META = {"at": 0.0, "map": {}, "boards": {}, "busy": False}
+_MK_META_TTL = 12 * 3600
+
+
+def _mk_meta_refresh(cache):
+    """后台刷新全市场股票画像：ROE(f37)/所属行业(f100) + 结果涉及行业的板块日周成交额。"""
+    _MK_META["busy"] = True
+    try:
+        hdr = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+               "Referer": "https://quote.eastmoney.com/"}
+        host = _em_pick_host()
+        m = {}
+        fs = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"   # 沪深A股（ETF/LOF无ROE/行业）
+        pn = 1
+        while True:
+            url = (f"https://{host}/api/qt/clist/get?pn={pn}&pz=100&po=1&np=1"
+                   f"&fltt=2&invt=2&fid=f12&fs={fs}&fields=f12,f14,f37,f100")
+            try:
+                r = _http_get(url, headers=hdr, tries=2)
+                data = (r.json() or {}).get("data") or {}
+            except Exception:
+                break
+            rows = data.get("diff") or []
+            if not rows:
+                break
+            for x in rows:
+                code = str(x.get("f12", ""))
+                if not _CODE_RE.match(code):
+                    continue
+                roe = x.get("f37")
+                try:
+                    roe = None if roe in ("-", None) else float(roe)
+                except (TypeError, ValueError):
+                    roe = None
+                m[code] = {"roe": roe, "industry": str(x.get("f100") or "")}
+            if pn * 100 >= int(data.get("total") or 0):
+                break
+            pn += 1
+            time.sleep(0.08)
+        if m:
+            _MK_META["map"] = m
+        # 板块日/周成交额：仅回测结果涉及的行业（自选池stock_meta已含，无需重复）
+        try:
+            from infrastructure.enrich import _board_map, fetch_board_amounts
+            inds = {str(r.get("industry") or "")
+                    for r in cache.stock_meta_map().values() if r.get("industry")}
+            for r in (_MK.get("job") or {}).get("results") or []:
+                mm = m.get(str(r.get("code")))
+                if mm and mm.get("industry"):
+                    inds.add(mm["industry"])
+            for ind in [i for i in inds if i and i not in _MK_META["boards"]][:150]:
+                bk = _board_map().get(ind)
+                if not bk:
+                    continue
+                day, week = fetch_board_amounts(bk)
+                if day or week:
+                    _MK_META["boards"][ind] = (day, week)
+                time.sleep(0.06)
+        except Exception:
+            pass
+    finally:
+        _MK_META["at"] = time.time()
+        _MK_META["busy"] = False
+
+
+def _mk_enrich_rows(cache, rows):
+    """回测结果行附加 ROE/行业/板块日周成交额（自选池stock_meta优先，全市场clist兜底）。"""
+    if not rows:
+        return rows
+    sm = cache.stock_meta_map()
+    clist = _MK_META["map"]
+    boards = _MK_META["boards"]
+    out = []
+    for r in rows:
+        code = str(r.get("code", ""))
+        rr = dict(r)
+        meta = sm.get(code)
+        if meta:
+            for k in ("roe", "industry", "board_day_amt", "board_week_amt"):
+                if meta.get(k) is not None:
+                    rr[k] = meta[k]
+        else:
+            mm = clist.get(code)
+            if mm:
+                if mm.get("roe") is not None:
+                    rr["roe"] = mm["roe"]
+                if mm.get("industry"):
+                    rr["industry"] = mm["industry"]
+                amt = boards.get(mm.get("industry") or "")
+                if amt:
+                    rr["board_day_amt"], rr["board_week_amt"] = amt
+        out.append(rr)
+    return out
+
 _STATE_CN = {"bull": "牛市", "bear": "熊市", "range": "震荡"}
 _SRC_CN = {"tencent": "腾讯行情", "akshare": "东财(akshare)", "baostock": "宝砂(baostock)",
            "synthetic": "合成数据(离线)"}
@@ -613,17 +709,9 @@ _PAGE = """
   </div>
 </div>
 
-<div class="cols2">
-  <div class="card"><h2>信号记录（推送历史）</h2>
-    <table id="sigTbl"><thead><tr><th>时间</th><th>标的</th><th>级别</th><th>方向</th></tr></thead>
-    <tbody></tbody></table></div>
-  <div class="card"><h2>数据 / 统计 / 扫描日志
-      <a href="/ops" style="margin-left:auto;font-size:12px;color:var(--acc);text-decoration:none">在运维中心查看 →</a></h2>
-    <div class="pill" style="line-height:2">
-      数据来源降级顺序、各标的缓存状态、扫描日志、信号胜率统计（10日窗口）、全池九转回测<br>
-      已集中至运维中心，保持看板清爽。</div>
-  </div>
-</div>
+<div class="card"><h2>信号记录（推送历史）</h2>
+  <table id="sigTbl"><thead><tr><th>时间</th><th>标的</th><th>级别</th><th>方向</th></tr></thead>
+  <tbody></tbody></table></div>
 
 <div class="card"><h2>策略说明</h2>
 <details open>
@@ -1505,7 +1593,8 @@ _MARKET_PAGE = """
     <button id="fM9" onclick="toggleTurn('m9')">月九</button>
   </div>
   <table id="mTbl"><thead><tr>
-    <th>#</th><th>名称-代码</th><th>类型</th><th>九转状态</th><th>现价</th>
+    <th>#</th><th>名称<br>代码</th><th>类型</th><th>九转状态</th><th>现价</th>
+    <th>ROE</th><th>板块</th><th>板块日额</th><th>板块周额</th>
     <th data-k="total_ret">策略收益率</th><th data-k="buy_hold_ret">持有不动收益率</th>
     <th data-k="excess">超额收益率</th><th data-k="annual_ret">年化</th>
     <th data-k="max_drawdown">最大回撤</th><th data-k="n_trades">交易次数</th>
@@ -1567,6 +1656,10 @@ const turnTag = (r, key, cn) => [8, 9].includes(Math.abs(r[key] || 0))
   ? `<span class="${r[key] > 0 ? 'dn' : 'up'}" style="font-weight:600;${Math.abs(r[key]) === 8 ? 'opacity:.65' : ''}">${cn}${r[key] > 0 ? '高' : '低'}${Math.abs(r[key])}</span>`
   : '';
 
+const fmtAmt = v => v == null ? '-' : v >= 1e12 ? (v / 1e12).toFixed(1) + '万亿'
+  : v >= 1e8 ? (v / 1e8).toFixed(0) + '亿' : v >= 1e4 ? (v / 1e4).toFixed(0) + '万' : Math.round(v);
+const roeCls = v => v == null ? '' : v >= 15 ? 'up' : v <= 5 ? 'dn' : '';
+
 function render() {
   const tb = document.querySelector('#mTbl tbody'); tb.innerHTML = '';
   const anyT = fT.w8 || fT.w9 || fT.m8 || fT.m9;
@@ -1576,12 +1669,16 @@ function render() {
   rows.forEach((r, i) => tb.insertAdjacentHTML('beforeend',
     `<tr class="row${r.code === mExpCode ? ' sel' : ''}" data-code="${r.code}" onclick="toggleRow('${r.code}')">
       <td class="dim">${i + 1}</td>
-      <td style="white-space:nowrap">${poolCodes.has(r.code)
-        ? '<span class="dim" style="font-size:11px;border:1px solid var(--bd);border-radius:4px;padding:1px 5px;margin-right:5px">自选</span>'
-        : `<span title="加入自选池" style="cursor:pointer;color:var(--acc);margin-right:5px;font-weight:700" onclick="event.stopPropagation();poolAddM('${r.code}','${(r.name || '').replace(/'/g, '')}')">＋</span>`}${r.name}-${r.code}</td>
+      <td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:4px">${poolCodes.has(r.code)
+        ? '<span class="dim" style="font-size:11px;border:1px solid var(--bd);border-radius:4px;padding:0 4px">自选</span>'
+        : `<span title="加入自选池" style="cursor:pointer;color:var(--acc);font-weight:700" onclick="event.stopPropagation();poolAddM('${r.code}','${(r.name || '').replace(/'/g, '')}')">＋</span>`}<span>${r.name || ''}</span></div><div class="dim" style="font-size:11px">${r.code}</div></td>
       <td class="dim">${TYPE_CN[r.type] || r.type}</td>
       <td>${turnTag(r, 'turn_week', '周')}${[8, 9].includes(Math.abs(r.turn_week || 0)) && [8, 9].includes(Math.abs(r.turn_month || 0)) ? '·' : ''}${turnTag(r, 'turn_month', '月')}</td>
       <td>${r.close ?? '-'}</td>
+      <td class="${roeCls(r.roe)}"${r.roe != null ? ' style="font-weight:600"' : ''}>${r.roe != null ? r.roe.toFixed(1) + '%' : '-'}</td>
+      <td class="dim" style="font-size:12px">${r.industry || '-'}</td>
+      <td class="dim">${fmtAmt(r.board_day_amt)}</td>
+      <td class="dim">${fmtAmt(r.board_week_amt)}</td>
       <td class="${cls(r.total_ret)}" style="font-weight:600">${sgn(r.total_ret)}%</td>
       <td class="${cls(r.buy_hold_ret)}">${sgn(r.buy_hold_ret)}%</td>
       <td class="${cls(r.excess)}">${sgn(r.excess)}%</td>
@@ -1619,7 +1716,7 @@ async function openDetail(code) {
   const row = allRows.find(r => r.code === code) || {};
   const name = row.name || code;
   tr.insertAdjacentHTML('afterend',
-    `<tr class="xr"><td colspan="11">
+    `<tr class="xr"><td colspan="15">
       <div class="xhead dim">收益折线 · ${name}-${code}（口径同上，买卖点：红▲买 绿▼卖）</div>
       <div id="mx_${code}" style="width:100%;height:280px"></div>
       <div id="mxMsg_${code}" class="dim" style="font-size:12px;padding:4px 2px">加载模拟数据…</div>
@@ -1710,6 +1807,7 @@ async function poll() {
   document.getElementById('errBox').textContent =
     (d.errors || []).length ? '最近错误：' + d.errors.slice(-3).join('；') : '';
   allRows = d.results || [];
+  if (d.meta_pending && !timer) setTimeout(poll, 4000);   // 个股画像后台刷新中，稍后重拉
   if (!d.running && d.params && !paramsRestored) {   // 恢复上次参数（含展开折线图口径）
     paramsRestored = true;
     const p = d.params;
@@ -2445,15 +2543,21 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
 
     @app.get("/api/market_sim/status")
     def market_sim_status():
+        # 个股画像（ROE/行业/板块成交额）过期则后台刷新，前端meta_pending时稍后重拉
+        if time.time() - _MK_META["at"] > _MK_META_TTL and not _MK_META["busy"]:
+            threading.Thread(target=_mk_meta_refresh, args=(cache,), daemon=True).start()
+        pending = _MK_META["busy"]
         job = _MK["job"]
         if not job:
             return jsonify(running=False, paused=False, results=[], done=0,
-                           total=0, ok=0, errors=[])
+                           total=0, ok=0, errors=[], meta_pending=pending)
         return jsonify(running=job["running"], paused=job.get("paused", False),
                        total=job["total"], done=job["done"],
                        ok=job["ok"], errors=job["errors"][-20:],
-                       results=job["results"], params=job["params"],
-                       started_at=job["started_at"], finished_at=job["finished_at"])
+                       results=_mk_enrich_rows(cache, job["results"]),
+                       params=job["params"],
+                       started_at=job["started_at"], finished_at=job["finished_at"],
+                       meta_pending=pending)
 
     @app.post("/api/market_sim/pause")
     def market_sim_pause():
@@ -2525,11 +2629,17 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
             color = "warning" if c > 0 else "info"
             return f'<font color="{color}">{cn}线{"高" if c > 0 else "低"}{abs(c)}</font>'
 
+        from presentation.formatter import stock_url
+
+        def name_link(name: str, code: str) -> str:
+            """名称即超链接（东方财富行情页）：简约版不展示代码。"""
+            return f"[{name or code}]({stock_url(code)})"
+
         if kind == "single":
             # 单一策略·神奇九转：与正式推送(orchestrator single_mode)完全对应的预演
-            # 门槛=|日线计数|≥push_from；fresh=stock_state上次计数比对；周月仅展示
+            # 简约版：顶部时间 + 顶部/底部预警分组（组间分割线）+ 每条=🆕/⏳+名称链接+九转日周月
             push_from = int(cfg.get("nine_turns", {}).get("push_from", 8))
-            fresh_lines, keep_lines = [], []
+            ups, downs = [], []
 
             def seg_md(cn: str, c) -> str:
                 # 日周月分段：≥8着色（高橙/低绿），其余灰显计数，None→无
@@ -2556,27 +2666,25 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
                 items.append({"code": code, "name": name, "tags": plain})
                 # 正式推送口径：上次扫描计数(stock_state)变化或首次出现=新增，一致=原有
                 prev = cache.get_state(code)
-                fresh = prev is None or prev != day_c
-                warn_cn = "顶部预警" if day_c > 0 else "底部预警"
-                row = f"> 🌀 **{name}** {code} · {warn_cn}：{tags}"
-                (fresh_lines if fresh else keep_lines).append(row)
+                mark = "🆕" if prev is None or prev != day_c else "⏳"
+                row = f"> {mark} {name_link(name, code)}：{tags}"
+                (ups if day_c > 0 else downs).append(row)
             title = f"【测试推送】单一策略·九转 {len(items)}只"
-            parts = []
-            if fresh_lines:
-                parts.append(f"\n🆕 **新增（{len(fresh_lines)}只）**\n" + "\n".join(fresh_lines))
-            if keep_lines:
-                div = "─" * 16
-                parts.append((f"\n{div}\n" if parts else "")
-                             + f"⏳ **原有维持（{len(keep_lines)}只）**\n" + "\n".join(keep_lines))
-            body = "\n".join(parts) if parts \
+            parts = [f"\n⏰ **{now}**"]
+            if ups:
+                parts.append(f"\n▲ **顶部预警 {len(ups)}只**\n" + "\n".join(ups))
+            if downs:
+                parts.append((f"\n{'─' * 16}\n" if len(parts) > 1 else "")
+                             + f"▼ **底部预警 {len(downs)}只**\n" + "\n".join(downs))
+            body = "\n".join(parts) if len(parts) > 1 \
                 else f"\n<font color=\"comment\">当前自选池无日线九转计数≥{push_from}的标的</font>\n本条仅验证推送通道。"
         elif kind == "nine":
-            # 推送历史视角：同方向推送过=⏳原有，未推送过=🆕新增（与正式推送的新增/原有口径一致）
+            # 九转多周期观察：任一周期|九转|≥8；顶部/底部分组+分割线，新增/原有按推送历史
             hist_dirs = {}
             for r_code, r_dir in cache.conn.execute(
                     "SELECT code, direction FROM push_history").fetchall():
                 hist_dirs.setdefault(str(r_code), set()).add(str(r_dir))
-            fresh_lines, keep_lines = [], []
+            ups, downs = [], []
             for code, name in pool.items():
                 tags, plain = [], []
                 for p, cn in (("day", "日"), ("week", "周"), ("month", "月")):
@@ -2587,21 +2695,19 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
                 if not tags:
                     continue
                 items.append({"code": code, "name": name, "tags": "┃".join(plain)})
-                # 日线方向为正式推送的判定口径
+                # 日线方向为正式推送的判定口径；同方向推送过=⏳原有
                 day_c = (snaps["day"].get(code) or {}).get("turn_count") or 0
-                direction = "up" if day_c > 0 else "down"
-                row = f"> **{name}** {code}：{' ┃ '.join(tags)}"
-                (keep_lines if direction in hist_dirs.get(code, set())
-                 else fresh_lines).append(row)
-            title = f"【测试推送】单一策略·九转满足标的 {len(items)}只"
-            parts = []
-            if fresh_lines:
-                parts.append(f"\n🆕 **新增（{len(fresh_lines)}只）**\n" + "\n".join(fresh_lines))
-            if keep_lines:
-                div = "─" * 16
-                parts.append((f"\n{div}\n" if parts else "")
-                             + f"⏳ **原有维持（{len(keep_lines)}只）**\n" + "\n".join(keep_lines))
-            body = "\n".join(parts) if parts \
+                mark = "⏳" if ("up" if day_c > 0 else "down") in hist_dirs.get(code, set()) else "🆕"
+                row = f"> {mark} {name_link(name, code)}：{' ┃ '.join(tags)}"
+                (ups if day_c > 0 else downs).append(row)
+            title = f"【测试推送】九转多周期观察 {len(items)}只"
+            parts = [f"\n⏰ **{now}**"]
+            if ups:
+                parts.append(f"\n▲ **顶部预警 {len(ups)}只**\n" + "\n".join(ups))
+            if downs:
+                parts.append((f"\n{'─' * 16}\n" if len(parts) > 1 else "")
+                             + f"▼ **底部预警 {len(downs)}只**\n" + "\n".join(downs))
+            body = "\n".join(parts) if len(parts) > 1 \
                 else "\n<font color=\"comment\">当前自选池无九转计数≥8的标的</font>\n本条仅验证推送通道。"
         else:
             lof_cfg = cfg.get("lof", {})
@@ -2615,10 +2721,11 @@ def create_app(cfg: dict, cache, sources, pusher, orch) -> Flask:
                 if p is not None and (p >= watch or p <= -disc):
                     items.append({"code": code, "name": name, "premium": p})
                     color = "warning" if p > 0 else "info"   # 溢价橙、折价绿
-                    lines.append(f"> **{name}** {code}：<font color=\"{color}\">"
+                    lines.append(f"> 💠 {name_link(name, code)}：<font color=\"{color}\">"
                                  f"溢价 {p:+.2f}%</font>")
             title = f"【测试推送】LOF溢价满足标的 {len(items)}只"
-            body = (f"\n真LOF(16/50) 溢价≥{watch}%或折价≤-{disc}%：\n" + "\n".join(lines)) if lines \
+            body = (f"\n⏰ **{now}**\n\n💠 **溢价提醒 {len(items)}只**（≥{watch}%或≤-{disc}%）\n"
+                    + "\n".join(lines)) if lines \
                 else f"\n<font color=\"comment\">当前真LOF无溢价≥{watch}%或折价≤-{disc}%的标的</font>\n本条仅验证推送通道。"
         body += f"\n<font color=\"comment\">TEST · 通道验证 · {now}</font>"
         # textcard卡片：与正式推送同形态（手机点卡片打开报告页）

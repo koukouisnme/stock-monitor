@@ -79,21 +79,58 @@ def _board_map() -> dict:
     return m
 
 
+_KLINE_HOSTS = ("push2his.eastmoney.com", "91.push2his.eastmoney.com")
+_clist_amt_cache = {"at": 0.0, "map": {}}   # BK代码 → 当日成交额(实时快照，10分钟有效)
+
+
+def _board_day_amt_clist() -> dict:
+    """板块当日成交额（push2delay clist实时快照）：kline通道被限流时的日额兜底。"""
+    if _clist_amt_cache["map"] and time.time() - _clist_amt_cache["at"] < 600:
+        return _clist_amt_cache["map"]
+    m = {}
+    for pn in range(1, 8):
+        try:
+            d = _get("https://push2delay.eastmoney.com/api/qt/clist/get",
+                     {"pn": pn, "pz": 100, "po": 1, "np": 1, "fltt": 2, "invt": 2,
+                      "fid": "f12", "fs": "m:90+t:2", "fields": "f12,f6", "ut": _UT})
+            diff = (d.get("data") or {}).get("diff") or []
+            if not diff:
+                break
+            for b in diff:
+                v = b.get("f6")
+                if v not in ("-", None):
+                    m[str(b.get("f12"))] = float(v)
+        except Exception:
+            break
+    if m:
+        _clist_amt_cache["map"] = m
+        _clist_amt_cache["at"] = time.time()
+    return m
+
+
 def fetch_board_amounts(board_code: str) -> tuple:
-    """板块最近一根日K/周K成交额(元)。"""
+    """板块最近一根日K/周K成交额(元)。
+    周额仅push2his kline可取（被限流时返回None，下次刷新再补）；
+    日额kline失败时用push2delay clist实时成交额兜底。"""
     out = (None, None)
     for klt, idx in ((101, 0), (102, 1)):
-        try:
-            d = _get("https://push2his.eastmoney.com/api/qt/stock/kline/get",
-                     {"secid": f"90.{board_code}", "fields1": "f1,f2,f3,f4,f5,f6",
-                      "fields2": "f51,f52,f53,f54,f55,f56,f57", "klt": klt, "fqt": 1,
-                      "end": "20500101", "lmt": 1, "ut": _UT})
-            ks = (d.get("data") or {}).get("klines") or []
-            if ks:
-                amt = float(ks[-1].split(",")[-1])
-                out = (amt, out[1]) if idx == 0 else (out[0], amt)
-        except Exception:
-            continue
+        amt = None
+        for host in _KLINE_HOSTS:
+            try:
+                d = _get(f"https://{host}/api/qt/stock/kline/get",
+                         {"secid": f"90.{board_code}", "fields1": "f1,f2,f3,f4,f5,f6",
+                          "fields2": "f51,f52,f53,f54,f55,f56,f57", "klt": klt, "fqt": 1,
+                          "end": "20500101", "lmt": 1, "ut": _UT})
+                ks = (d.get("data") or {}).get("klines") or []
+                if ks:
+                    amt = float(ks[-1].split(",")[-1])
+                break
+            except Exception:
+                continue
+        if amt is None and klt == 101:
+            amt = _board_day_amt_clist().get(board_code)
+        if amt is not None:
+            out = (amt, out[1]) if idx == 0 else (out[0], amt)
     return out
 
 
